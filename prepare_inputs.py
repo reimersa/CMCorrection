@@ -5,21 +5,29 @@ import pandas as pd
 from pandas.api.types import CategoricalDtype
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
-import matplotlib.colors as mcolors
-import matplotlib.gridspec as gridspec
 import numpy as np
 from copy import copy
 import os
 from sklearn.model_selection import train_test_split
 
+import utils
+
 
 def main():
+
+    # Names of the modules for which we want to produce inputs
     modulenames = ["ML_F3W_WXIH0190", "ML_F3W_WXIH0191", "ML_F3W_WXIH0192", "ML_F3W_WXIH0193", "ML_F3W_WXIH0194", "ML_F3W_WXIH0196", "ML_F3W_WXIH0197", "ML_F3W_WXIH0198"]
+
+
+
+
+
+    ### No need to change things below here -------------------------
 
     for modulename in modulenames:
         # Define output folders
         plotfolder = f"plots/inputs/{modulename}"
-        inputfolder = f"/eos/user/{os.getenv('USER')[0]}/{os.getenv('USER')[0]}/hgcal/dnn_inputs/{modulename}"
+        inputfolder = f"/eos/user/{os.getenv('USER')[0]}/{os.getenv('USER')}/hgcal/dnn_inputs/{modulename}"
         os.makedirs(name=plotfolder, exist_ok=True)
         os.makedirs(name=inputfolder, exist_ok=True)
 
@@ -43,7 +51,7 @@ def main():
         inputs, targets, inputs_mean, targets_mean, chadc, eventid = preprocess_inputs_targets(inputs, targets, foldername=inputfolder)
         for inputname in colnames:
             labelname = inputname.replace("cm_erx", "CM e-Rx ")
-            plot_y_vs_x_with_marginals(vals_x=inputs[inputname], vals_y=targets["adc"], label_x=labelname, label_y="Measured ADC", label_profile="profile: mean measured ADC", output_filename=f"{plotfolder}/ADC_vs_{inputname}_mean0.pdf")
+            utils.plot_y_vs_x_with_marginals(vals_x=inputs[inputname], vals_y=targets["adc"], label_x=labelname, label_y="Measured ADC", label_profile="profile: mean measured ADC", output_filename=f"{plotfolder}/ADC_vs_{inputname}_mean0.pdf")
     
         # Perform train/val split
         all_indices = np.arange(len(inputs))
@@ -155,131 +163,6 @@ def preprocess_inputs_targets(inputs, targets, foldername):
     targets_centered_df = pd.DataFrame({"adc": targets_centered})
 
     return inputs_centered.astype(np.float32), targets_centered_df.astype(np.float32), inputs_mean, per_channel_means.to_numpy(), chadc.to_numpy(), eventid.to_numpy()
-
-
-def plot_1d_histogram(data, output_filename, bins='auto', xlabel=None, ylabel="Entries", integer_ticks=True):
-
-    # Determine what type of input we have
-    if isinstance(data, str):
-        raise ValueError("Please pass the actual data or a column Series, not a string column name.")
-    elif isinstance(data, pd.Series):
-        values = data.to_numpy()
-        xlabel = xlabel or data.name
-    else:
-        values = np.array(data)
-        if xlabel is None:
-            xlabel = "Value"
-
-    # Auto-binning for integers
-    if bins == 'auto':
-        if np.issubdtype(values.dtype, np.integer):
-            min_val, max_val = values.min(), values.max()
-            bins = np.arange(min_val, max_val + 2) - 0.5
-        else:
-            bins = 50
-
-    # Plot
-    plt.figure(figsize=(8, 6))
-    plt.hist(values, bins=bins, color="steelblue")
-
-    ax = plt.gca()
-    ax.set_xlabel(xlabel, fontsize=16, loc="right", labelpad=10)
-    ax.set_ylabel(ylabel, fontsize=16, loc="top", labelpad=10)
-    ax.tick_params(axis='both', labelsize=12)
-
-    if integer_ticks:
-        ax.xaxis.set_major_locator(ticker.MaxNLocator(integer=True))
-
-    plt.grid(True)
-    plt.tight_layout()
-    plt.savefig(output_filename)
-    print(f"Saved 1-d plot {output_filename}")
-    plt.close()
-
-
-def plot_y_vs_x_with_marginals(vals_x, vals_y, label_x, label_y, label_profile, output_filename):
-    vals_x = np.asarray(vals_x)
-    vals_y = np.asarray(vals_y)
-
-    if np.all(vals_x == vals_x.astype(int)):
-        bins_x = np.histogram_bin_edges(vals_x, bins=20)
-    else:
-        bins_x = np.histogram_bin_edges(vals_x, bins=20)
-
-    if np.all(vals_y == vals_y.astype(int)):
-        bins_y = np.histogram_bin_edges(vals_y, bins=20)
-    else:
-        bins_y = np.histogram_bin_edges(vals_y, bins=20)
-
-    centers_x = (bins_x[:-1] + bins_x[1:]) / 2
-
-    # Compute mean ADC per cm bin
-    bin_indices_x = np.digitize(vals_x, bins_x) - 1
-    means_y = np.full_like(centers_x, np.nan, dtype=float)
-    for i in range(len(centers_x)):
-        in_bin = vals_y[bin_indices_x == i]
-        if len(in_bin) > 0:
-            means_y[i] = np.mean(in_bin)
-
-    # Setup figure with 3 axes
-    fig = plt.figure(figsize=(10, 8))
-    gs = gridspec.GridSpec(2, 2, width_ratios=[4, 1], height_ratios=[1, 4],
-                           hspace=0.05, wspace=0.05)
-
-    ax_main = plt.subplot(gs[1, 0])
-    ax_top = plt.subplot(gs[0, 0], sharex=ax_main)
-    ax_right = plt.subplot(gs[1, 1], sharey=ax_main)
-
-    # Show ticks on all 4 sides
-    for ax in [ax_main, ax_top, ax_right]:
-        ax.tick_params(
-            axis='both',
-            which='both',
-            direction='in',
-            top=True,
-            bottom=True,
-            left=True,
-            right=True,
-            labelsize=12
-        )
-
-    # Force integer ticks on all axes if values are all integers
-    if np.all(vals_x == vals_x.astype(int)):
-        ax_main.xaxis.set_major_locator(ticker.MaxNLocator(integer=True))
-        ax_top.xaxis.set_major_locator(ticker.MaxNLocator(integer=True))
-    if np.all(vals_y == vals_y.astype(int)):
-        ax_main.yaxis.set_major_locator(ticker.MaxNLocator(integer=True))
-        ax_right.yaxis.set_major_locator(ticker.MaxNLocator(integer=True))
-
-    # 2D histogram
-    cmap = plt.cm.viridis.copy()
-    cmap.set_under("white")
-    norm = mcolors.Normalize(vmin=1)
-
-    h = ax_main.hist2d(vals_x, vals_y, bins=(bins_x, bins_y), cmap=cmap, norm=norm)
-
-    # Profile (red dots)
-    valid = ~np.isnan(means_y)
-    ax_main.scatter(centers_x[valid], means_y[valid], color='red', s=25, label=label_profile, zorder=10)
-    ax_main.legend(fontsize=15)
-    ax_main.tick_params(labelsize=15)
-
-    # 1D histograms
-    ax_top.hist(vals_x, bins=bins_x, color='gray')
-    ax_right.hist(vals_y, bins=bins_y, color='gray', orientation='horizontal')
-
-    # Clean ticks and labels
-    ax_top.tick_params(axis='x', labelbottom=False)
-    ax_right.tick_params(axis='y', labelleft=False)
-
-    ax_main.set_xlabel(label_x, fontsize=19, loc='right', labelpad=10)
-    ax_main.set_ylabel(label_y, fontsize=19, loc='top', labelpad=10)
-
-    ax_main.grid(True)
-    plt.savefig(output_filename)
-    print(f"Saved 2-d plot with marginals {output_filename}")
-    plt.close()
-
 
 
 if __name__ == '__main__':

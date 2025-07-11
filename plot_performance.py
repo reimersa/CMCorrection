@@ -4,102 +4,54 @@ import torch
 import torch.nn as nn
 import os
 import math
-from prepare_inputs import plot_y_vs_x_with_marginals
+
 import utils
-
-# --- Define model ---
-class RegressionDNN(nn.Module):
-    def __init__(self, input_dim):
-        super().__init__()
-        self.model = nn.Sequential(
-            nn.Linear(input_dim, 128),
-            nn.ReLU(),
-            # nn.Dropout(0.1),
-            nn.Linear(128, 128),
-            nn.ReLU(),
-            # nn.Dropout(0.1),
-            nn.Linear(128, 64),
-            nn.ReLU(),
-            # nn.Dropout(0.1),
-            nn.Linear(64, 1)
-        )
-
-    def forward(self, x):
-        return self.model(x)
-
-# --- Define Model ---
-class RegressionDNN4L(nn.Module):
-    def __init__(self, input_dim):
-        super().__init__()
-        self.model = nn.Sequential(
-            nn.Linear(input_dim, 512),
-            nn.ReLU(),
-            # nn.Dropout(0.1),
-            nn.Linear(512, 512),
-            nn.ReLU(),
-            # nn.Dropout(0.1),
-            nn.Linear(512, 512),
-            nn.ReLU(),
-            # nn.Dropout(0.1),
-            nn.Linear(512, 512),
-            nn.ReLU(),
-            # nn.Dropout(0.1),
-            nn.Linear(512, 64),
-            nn.ReLU(),
-            # nn.Dropout(0.1),
-            nn.Linear(64, 1)
-        )
-
-    def forward(self, x):
-        return self.model(x)
-
-class RegressionLinear(nn.Module):
-    def __init__(self, input_dim):
-        super().__init__()
-        self.linear = nn.Linear(input_dim, 1, bias=True)
-
-    def forward(self, x):
-        return self.linear(x)
+import models
 
 
 def main():
-    # --- Select device ---
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Using device: {device}")
 
     # --- Define paths ---
-    modulename_model = "ML_F3W_WXIH0190_ML_F3W_WXIH0191_newtraining"
-    # modulename_model = "ML_F3W_WXIH0190_newtraining_4L_512N"
-    # modulename_model = "ML_F3W_WXIH0190"
+    # modulename_model = "ML_F3W_WXIH0190_ML_F3W_WXIH0191_newtraining"
+    # # modulename_model = "ML_F3W_WXIH0190_newtraining_4L_512N"
+    # # modulename_model = "ML_F3W_WXIH0190"
 
-    modulename_inputs = "ML_F3W_WXIH0190"
-    # modulename_inputs = "ML_F3W_WXIH0191"
-    # modulename_inputs = "ML_F3W_WXIH0192"
+    modulenames_used_for_training = ["ML_F3W_WXIH0190"]
+    # modulenames_used_for_training = ["ML_F3W_WXIH0190", "ML_F3W_WXIH0191"]
+
+    modulename_for_evaluation = "ML_F3W_WXIH0190"
+    # modulename_for_evaluation = "ML_F3W_WXIH0191"
+    # modulename_for_evaluation = "ML_F3W_WXIH0192"
 
     modelname = "regression_dnn"
     # modelname = "linreg"
 
-    class_per_model = {
-        "ML_F3W_WXIH0190": RegressionDNN,
-        "ML_F3W_WXIH0190_ML_F3W_WXIH0191_newtraining": RegressionDNN,
-        "ML_F3W_WXIH0190_newtraining": RegressionDNN,
-        "ML_F3W_WXIH0190_newtraining_4L_512N": RegressionDNN4L,
-    }
+    nodes_per_layer = [128, 128, 64]
+    # nodes_per_layer = [512, 512, 512, 512, 64]
+
+    dropout_rate = 0.0
+
+    modeltag = "test"
+    override_full_model_name = False
+    # new_model_name = "ML_F3W_WXIH0190_newtraining_4L_512N"
+    # new_model_name = "ML_F3W_WXIH0190_ML_F3W_WXIH0191_newtraining"
+    new_model_name = "ML_F3W_WXIH0190_newtraining"
 
 
-    nch_per_erx = 37
-    nerx = 6 if modulename_inputs.startswith("ML") else 12
     
-    inputfolder = f"/eos/user/a/areimers/hgcal/dnn_inputs/{modulename_inputs}"
-    modelfolder = f"/eos/user/a/areimers/hgcal/dnn_models/{modulename_model}"
-    plotfolder = f"plots/models/{modulename_model}_{modelname}/inputs_from_{modulename_inputs}"
-    os.makedirs(name=plotfolder, exist_ok=True)
+
+    ### No need to change things below here -------------------------
+
+    # --- Select device ---
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Using device: {device}")
+
+    nch_per_erx = 37 if modulename_for_evaluation.startswith("ML") else 74
+    nerx = 6 if modulename_for_evaluation.startswith("ML") else 12
+    
+    inputfolder = f"/eos/user/{os.getenv('USER')[0]}/{os.getenv('USER')}/hgcal/dnn_inputs/{modulename_for_evaluation}"
 
     # --- Load inputs and model ---
-    if not os.path.exists(f"{modelfolder}/{modelname}_best.pth"):
-        raise FileNotFoundError(f"Saved model '{modelfolder}/{modelname}_best.pth' not found.")
-
-
     inputs_train  = np.load(f"{inputfolder}/inputs_train.npy")
     inputs_val    = np.load(f"{inputfolder}/inputs_val.npy")
     targets_train = np.load(f"{inputfolder}/targets_train.npy")
@@ -121,20 +73,23 @@ def main():
     eventid_train = eventid_full[train_idx]
     eventid_val   = eventid_full[val_idx]
     print("--> Loaded inputs and targets")
-    utils.print_memory_usage("Loaded inputs and targets")
 
-    # --- Instantiate & load model ---
-    if modelname == "regression_dnn":
-        model = class_per_model[modulename_model](input_dim=inputs_train.shape[1]).to(device)
-    elif modelname == "linreg":
-        model = RegressionLinear(input_dim=inputs_train.shape[1]).to(device)
-    else:
-        raise ValueError(f"Invalid modelname '{modelname}'. Which architecture should be used?")
-    model.load_state_dict(torch.load(f"{modelfolder}/{modelname}_best.pth", map_location=device))
+    # # --- Instantiate & load model ---
+    # model = models.DNNFlex(input_dim=X_train.shape[1], nodes_per_layer=[128, 128, 64], dropout_rate=0.0, tag=modeltag).to(device)
+    model = models.DNNFlex(input_dim=X_train.shape[1], nodes_per_layer=nodes_per_layer, dropout_rate=dropout_rate, tag=modeltag).to(device)
+    if override_full_model_name:
+        model.override_model_string(new_model_name)
+    modelfolder = f"/eos/user/{os.getenv('USER')[0]}/{os.getenv('USER')}/hgcal/dnn_models/{'_'.join(modulenames_used_for_training)}/{model.get_model_string()}"
+    plotfolder = f"plots/performance/{'_'.join(modulenames_used_for_training)}/{model.get_model_string()}/inputs_from_{modulename_for_evaluation}"
+    os.makedirs(name=plotfolder, exist_ok=True)
+
+    pth_to_load = f"{modelfolder}/{modelname}_best.pth"
+    if not os.path.exists(pth_to_load):
+        raise FileNotFoundError(f"Saved model '{modelfolder}/{modelname}_best.pth' not found.")
+    model.load_state_dict(torch.load(pth_to_load, map_location=device))
     model.to(device)
     model.eval()
-    print(f"--> Loaded model {modulename_model}")
-    utils.print_memory_usage(f"Loaded model {modulename_model}")
+    print(f"--> Loaded model {model.get_model_string()}")
 
     npar_total, npar_trainable = utils.count_parameters(model=model)
     print(f"Total parameters:     {npar_total:,}")
@@ -145,7 +100,6 @@ def main():
         y_pred_train = model(X_train).squeeze().numpy()
         y_pred_val   = model(X_val).squeeze().numpy()
     print(f"--> Made predictions")
-    utils.print_memory_usage(f"Made predictions")
 
     # bring true y back to numpy
     y_train = y_train.squeeze().numpy()
@@ -158,7 +112,6 @@ def main():
     chadc_combined     = np.concatenate([chadc_train,  chadc_val],  axis=0)
     eventid_combined   = np.concatenate([eventid_train,  eventid_val],  axis=0)
     print(f"--> Concatenated train and val")
-    utils.print_memory_usage(f"Concatenated train and val")
 
 
 
@@ -272,7 +225,7 @@ def main():
             label = f"CM e-Rx {erx_idx:02}"
 
             # True ADC vs. CM e-Rx
-            plot_y_vs_x_with_marginals(
+            utils.plot_y_vs_x_with_marginals(
                 vals_x=cm_col,
                 vals_y=y_combined_2d[:, ch],
                 label_x=label,
@@ -282,7 +235,7 @@ def main():
             )
 
             # Predicted ADC vs. CM e-Rx
-            plot_y_vs_x_with_marginals(
+            utils.plot_y_vs_x_with_marginals(
                 vals_x=cm_col,
                 vals_y=y_pred_combined_2d[:, ch],
                 label_x=label,
@@ -292,7 +245,7 @@ def main():
             )
 
             # Residual vs. CM e-Rx
-            plot_y_vs_x_with_marginals(
+            utils.plot_y_vs_x_with_marginals(
                 vals_x=cm_col,
                 vals_y=residual_2d[:, ch],
                 label_x=label,
@@ -422,7 +375,7 @@ def plot_coherent_noise(y_true, y_pred, chadc, eventid, nch_per_erx, nerx, input
     im = ax.imshow(hist2d, origin='lower', aspect='auto', extent=extent, cmap='viridis')
     ax.set_xlabel("ERx board index")
     ax.set_xticks(erx_idx)
-    ax.set_ylabel("Direct sum (Σ ADC)")
+    ax.set_ylabel("Direct sum (ADC)")
     ax.set_title("")
     cb = fig.colorbar(im, ax=ax); cb.set_label("Events")
     plt.tight_layout()
@@ -559,7 +512,7 @@ def plot_all_diagnostics(inputs, y_true, y_pred, chadc, label_suffix, inputfolde
     print(f"[{label_suffix}] RMS True: {rms_true:.4f}, RMS Corrected: {rms_corrected:.4f}")
 
     # --- True vs Predicted
-    plot_y_vs_x_with_marginals(
+    utils.plot_y_vs_x_with_marginals(
         vals_x=y_true,
         vals_y=y_pred,
         label_x="True ADC",
@@ -570,7 +523,7 @@ def plot_all_diagnostics(inputs, y_true, y_pred, chadc, label_suffix, inputfolde
 
     # --- Residual vs. each CM e-Rx
     for idx in range(12):
-        plot_y_vs_x_with_marginals(
+        utils.plot_y_vs_x_with_marginals(
             vals_x=inputs[:, idx],
             vals_y=residual,
             label_x=f"CM e-Rx {idx:02}",
@@ -581,7 +534,7 @@ def plot_all_diagnostics(inputs, y_true, y_pred, chadc, label_suffix, inputfolde
 
     # --- Predicted vs. each CM e-Rx
     for idx in range(12):
-        plot_y_vs_x_with_marginals(
+        utils.plot_y_vs_x_with_marginals(
             vals_x=inputs[:, idx],
             vals_y=y_pred,
             label_x=f"CM e-Rx {idx:02}",

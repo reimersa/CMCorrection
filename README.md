@@ -10,7 +10,7 @@ The code will be cloned into the current directory, and a virtual environment `t
 ```bash
 git clone git@github.com:reimersa/CMCorrection.git
 cd CMCorrection
-python3.9 -m torch-env /eos/user/${USER:0:1}/${USER}/torch-env
+python3.9 -m venv /eos/user/${USER:0:1}/${USER}/torch-env
 ```
 and then
 ```bash
@@ -31,7 +31,9 @@ To convert NANO-like ROOT files into files that can be used for training and per
 ```bash
 python prepare_inputs.py
 ```
-Inside that file, simply give a list of modules whose data you would like to convert. This will create a folder `/eos/user/<FIRSTLETTER>/$USER/hgcal/dnn_inputs/<MODULENAME>` for each module in the list of modules. This folder will hold all you need.
+Inside that file, simply give a list of modules whose data you would like to convert. 
+
+This will create a folder `/eos/user/<FIRSTLETTER>/$USER/hgcal/dnn_inputs/<MODULENAME>` for each module in the list of modules. This folder will hold all you need.
 
 Also, a set of plots will be created in a folder `plots/inputs/<MODULENAME>` in the current directory.
 

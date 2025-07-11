@@ -13,7 +13,7 @@ import models
 
 
 
-def main()
+def main():
 
     # --- Define modules to use for training ---
     # modulenames_for_training = ["ML_F3W_WXIH0190", "ML_F3W_WXIH0191"]
@@ -21,10 +21,10 @@ def main()
 
 
     # --- Define DNN parameters/architecture ---
-    nodes_per_layer = [128, 128, 64]
-    # nodes_per_layer = [512, 512, 512, 512, 64]
+    # nodes_per_layer = [128, 128, 64]
+    nodes_per_layer = [512, 512, 512, 512, 64]
 
-    dropout_rate = 0.0
+    dropout_rate = 0.2
 
     modeltag = "" # a custom 
     override_full_model_name = False # If true, it will be named only f'new_model_name}' instead of an auto-generated name based on its parameters

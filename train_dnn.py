@@ -87,7 +87,7 @@ def main():
     print(f"Combined target mean (val):   {y_val.mean().item():.4f}, std: {y_val.std().item():.4f}")
 
     # --- Create DataLoaders ---
-    batch_size = 4096 * len(modulenames)
+    batch_size = 4096 * len(modulenames_for_training)
     train_loader = DataLoader(TensorDataset(X_train, y_train), batch_size=batch_size, shuffle=True)
     val_loader   = DataLoader(TensorDataset(X_val, y_val),     batch_size=batch_size)
 
@@ -95,7 +95,7 @@ def main():
     model = models.DNNFlex(input_dim=X_train.shape[1], nodes_per_layer=nodes_per_layer, dropout_rate=dropout_rate, tag=modeltag).to(device)
     if override_full_model_name:
         model.override_model_string(new_model_name)
-    modelfolder = f"/eos/user/{os.getenv('USER')[0]}/{os.getenv('USER')}/hgcal/dnn_models/{'_'.join(modulenames)}/{model.get_model_string()}"
+    modelfolder = f"/eos/user/{os.getenv('USER')[0]}/{os.getenv('USER')}/hgcal/dnn_models/{'_'.join(modulenames_for_training)}/{model.get_model_string()}"
     os.makedirs(name=modelfolder, exist_ok=False)
 
     # --- Training Setup ---

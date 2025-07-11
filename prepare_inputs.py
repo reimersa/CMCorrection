@@ -14,33 +14,30 @@ from sklearn.model_selection import train_test_split
 
 
 def main():
-    # Open the ROOT file and tree
-    # modulenames = ["ML_F3W_WXIH0190", "ML_F3W_WXIH0191"]
-    modulenames = ["ML_F3W_WXIH0190", "ML_F3W_WXIH0191", "ML_F3W_WXIH0192", "ML_F3W_WXIH0193", "ML_F3W_WXIH0194", "ML_F3W_WXIH0195", "ML_F3W_WXIH0196", "ML_F3W_WXIH0197", "ML_F3W_WXIH0198"]
+    modulenames = ["ML_F3W_WXIH0190", "ML_F3W_WXIH0191", "ML_F3W_WXIH0192", "ML_F3W_WXIH0193", "ML_F3W_WXIH0194", "ML_F3W_WXIH0196", "ML_F3W_WXIH0197", "ML_F3W_WXIH0198"]
 
     for modulename in modulenames:
+        # Define output folders
         plotfolder = f"plots/inputs/{modulename}"
-        inputfolder = f"/eos/user/a/areimers/hgcal/dnn_inputs/{modulename}"
+        inputfolder = f"/eos/user/{os.getenv('USER')[0]}/{os.getenv('USER')[0]}/hgcal/dnn_inputs/{modulename}"
         os.makedirs(name=plotfolder, exist_ok=True)
         os.makedirs(name=inputfolder, exist_ok=True)
-        infilename = f"../output/histofiller/input_features_{modulename}.root"
-        file = uproot.open(infilename)
-        tree = file["InputFeatures"]
+
+        # Open file and load tree
+        infilename = f"/afs/cern.ch/user/a/areimers/CMSSW_15_1_0_pre1/src/HGCalCommissioning/LocalCalibration/output/histofiller/input_features_{modulename}.root"
+        infile = uproot.open(infilename)
+        tree = infile["InputFeatures"]
     
         # Load tree into df
         df = tree.arrays(library="pd")
         for idx_erx in range(12):
             df.loc[df["nerx"] <= idx_erx, f"cm_erx{idx_erx:02}"] = 0
     
+        # Define input variables, everything we need from the ROOT files
         input_cols = [f'cm_erx{idxerx:02}' for idxerx in range(12)] + ['erx', 'chadc', 'nchadc']
     
         # Expand to flat arrays
-        # inputs, targets = expand_inputs_and_targets(df, input_cols=input_cols, selected_indices=range(37))
         inputs, targets, colnames = expand_inputs_and_targets(df, input_cols=input_cols, selected_indices=range(222))
-        print(f"after expanding inputs, the column names are: {colnames}")
-        # inputs, targets = expand_inputs_and_targets(df, input_cols=input_cols, selected_indices=range(1))
-        # for inputname in colnames:
-        #     plot_y_vs_x_with_marginals(vals_x=inputs[inputname], vals_y=targets["adc"], label_x=inputname, label_y="ADC channels 0-222", label_profile="ADC profile", output_filename=f"{plotfolder}/ADC_vs_{inputname}.pdf")
     
         # Preprocess flat arrays (center them and save means)
         inputs, targets, inputs_mean, targets_mean, chadc, eventid = preprocess_inputs_targets(inputs, targets, foldername=inputfolder)
@@ -57,18 +54,20 @@ def main():
             shuffle=True
         )
 
+        # Drop columns that should not be used as inputs (but were loaded because needed for something else)
         inputs = inputs.drop(columns=["event_id"])
     
+        # Convert inputs and targets to numpy
         X = inputs.to_numpy()
         y = targets.to_numpy()
     
+        # Apply train/val split
         X_train = X[train_indices]
         X_val = X[val_indices]
         y_train = y[train_indices]
         y_val = y[val_indices]
 
-
-    
+        # Write to files
         np.save(f"{inputfolder}/inputs_train.npy", X_train)
         np.save(f"{inputfolder}/inputs_val.npy", X_val)
         np.save(f"{inputfolder}/targets_train.npy", y_train)
@@ -85,6 +84,8 @@ def main():
 
 
 def expand_inputs_and_targets(df, input_cols, selected_indices):
+    """Some inputs are not channel-specific, but module-specific. These need to be repeated to have the same format as per-channel inputs."""
+
     # --- Separate per-channel inputs from scalar inputs ---
     scalar_cols = [col for col in input_cols if col not in ["chadc", "erx"]]
 
@@ -135,15 +136,15 @@ def expand_inputs_and_targets(df, input_cols, selected_indices):
 
 
 def preprocess_inputs_targets(inputs, targets, foldername):
+    """Subtract average ADC per channel (= pedestal correction), also center all other variables around 0 for numerical stability."""
+
     # Center each input column (scalar + per-channel inputs)
     inputs_mean = np.mean(inputs, axis=0)
     inputs_centered = inputs - inputs_mean
 
     # Use chadc to get per-channel mean for each ADC value
-    # print(inputs["chadc"])
     chadc = inputs["chadc"].astype(int)
     eventid = inputs["event_id"].astype(int)
-    # print(chadc)
     adc_vals = targets["adc"]
 
     # Compute per-channel means
@@ -152,17 +153,6 @@ def preprocess_inputs_targets(inputs, targets, foldername):
     # Subtract per-channel means
     targets_centered = adc_vals - chadc.map(per_channel_means)
     targets_centered_df = pd.DataFrame({"adc": targets_centered})
-
-    # Save inputs and targets
-    # np.save(f"{foldername}/inputs_erx00_mean.npy", inputs_mean)
-    # np.save(f"{foldername}/targets_erx00_mean.npy", per_channel_means.to_numpy())
-    # np.save(f"{foldername}/inputs_mean.npy", inputs_mean)
-    # np.save(f"{foldername}/targets_mean.npy", per_channel_means.to_numpy())
-    # np.save(f"{foldername}/inputs_ch000_mean.npy", inputs_mean)
-    # np.save(f"{foldername}/targets_ch000_mean.npy", per_channel_means.to_numpy())
-
-    # Also save chadc for use during evaluation (e.g., undoing mean subtraction)
-    # np.save(f"{foldername}/chadc.npy", chadc.to_numpy())
 
     return inputs_centered.astype(np.float32), targets_centered_df.astype(np.float32), inputs_mean, per_channel_means.to_numpy(), chadc.to_numpy(), eventid.to_numpy()
 
@@ -212,13 +202,11 @@ def plot_y_vs_x_with_marginals(vals_x, vals_y, label_x, label_y, label_profile, 
     vals_y = np.asarray(vals_y)
 
     if np.all(vals_x == vals_x.astype(int)):
-        # bins_x = np.arange(int(vals_x.min()), int(vals_x.max()) + 2) - 0.5
         bins_x = np.histogram_bin_edges(vals_x, bins=20)
     else:
         bins_x = np.histogram_bin_edges(vals_x, bins=20)
 
     if np.all(vals_y == vals_y.astype(int)):
-        # bins_y = np.arange(int(vals_y.min()), int(vals_y.max()) + 2) - 0.5
         bins_y = np.histogram_bin_edges(vals_y, bins=20)
     else:
         bins_y = np.histogram_bin_edges(vals_y, bins=20)
@@ -288,70 +276,10 @@ def plot_y_vs_x_with_marginals(vals_x, vals_y, label_x, label_y, label_profile, 
     ax_main.set_ylabel(label_y, fontsize=19, loc='top', labelpad=10)
 
     ax_main.grid(True)
-    # fig.tight_layout()
     plt.savefig(output_filename)
     print(f"Saved 2-d plot with marginals {output_filename}")
     plt.close()
 
-
-def plot_adc_vs_cm_profile(df, adc_channel, cm_column, output_filename):
-
-    # Extract data
-    adc_ch0 = np.array([v[adc_channel] for v in df["adc"]])
-    vals_x = df[cm_column].to_numpy()
-
-    # Define binning
-    bins_y = np.arange(adc_ch0.min(), adc_ch0.max() + 2) - 0.5
-    bins_x = np.arange(vals_x.min(), vals_x.max() + 2) - 0.5
-    cm_bin_centers = (bins_x[:-1] + bins_x[1:]) / 2
-
-    # Digitize cm values to find which adc values fall into which cm bin
-    bin_indices_x = np.digitize(vals_x, bins_x) - 1
-
-    # Compute mean adc in each cm bin
-    means_y = np.full_like(cm_bin_centers, np.nan, dtype=float)
-    for i in range(len(cm_bin_centers)):
-        values_in_bin = adc_ch0[bin_indices_x == i]
-        if len(values_in_bin) > 0:
-            means_y[i] = values_in_bin.mean()
-
-    # 2D histogram
-    cmap = plt.cm.viridis.copy()
-    cmap.set_under("white")
-    norm = mcolors.Normalize(vmin=1)
-
-    plt.figure(figsize=(8, 6))
-    plt.hist2d(vals_x, adc_ch0, bins=(bins_x, bins_y), cmap=cmap, norm=norm)
-
-    # Axis labels
-    plt.xlabel(cm_column, fontsize=16, loc="right", labelpad=10)
-    plt.ylabel("ADC in Channel 0", fontsize=16, loc="top", labelpad=10)
-
-    # Colorbar
-    cbar = plt.colorbar()
-    cbar.set_label("Entries", fontsize=14)
-
-    # Overlay profile as red scatter points
-    valid = ~np.isnan(means_y)
-    plt.scatter(
-        cm_bin_centers[valid],
-        means_y[valid],
-        color="red",
-        label="ADC profile",
-        s=25,
-        zorder=10
-    )
-    plt.legend(fontsize=12)
-
-    ax = plt.gca()
-    ax.xaxis.set_major_locator(ticker.MaxNLocator(integer=True))
-    ax.yaxis.set_major_locator(ticker.MaxNLocator(integer=True))
-
-    # plt.grid(True)
-    plt.tight_layout()
-    plt.savefig(output_filename)
-    print(f"Saved 2-d plot {output_filename}")
-    plt.close()
 
 
 if __name__ == '__main__':

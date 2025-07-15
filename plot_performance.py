@@ -26,12 +26,17 @@ def main():
     modelname = "regression_dnn"
     # modelname = "linreg"
 
-    nodes_per_layer = [128, 128, 64]
-    # nodes_per_layer = [512, 512, 512, 512, 64]
+    # nodes_per_layer = [128, 128, 64]
+    nodes_per_layer = [512, 512, 512, 512, 64]
 
-    dropout_rate = 0.0
+    # dropout_rate = 0.0
+    dropout_rate = 0.05
+    # dropout_rate = 0.1
+    # dropout_rate = 0.2
 
-    modeltag = "test"
+    modeltag = ""
+    # modeltag = "fraction0p1"
+
     override_full_model_name = False
     # new_model_name = "ML_F3W_WXIH0190_newtraining_4L_512N"
     # new_model_name = "ML_F3W_WXIH0190_ML_F3W_WXIH0191_newtraining"
@@ -122,7 +127,8 @@ def main():
     # plot_all_diagnostics(inputs=inputs_train, y_true=y_train, y_pred=y_pred_train, chadc=chadc_train, label_suffix="train_mean0", inputfolder=inputfolder, plotfolder=plotfolder, use_unstandardized=False)
     # plot_all_diagnostics(inputs=inputs_val, y_true=y_val, y_pred=y_pred_val, chadc=chadc_val, label_suffix="val_mean0", inputfolder=inputfolder, plotfolder=plotfolder, use_unstandardized=False)
     plot_all_diagnostics(inputs=inputs_combined, y_true=y_true_combined, y_pred=y_pred_combined, chadc=chadc_combined, label_suffix="combined_mean0", inputfolder=inputfolder, plotfolder=plotfolder, use_unstandardized=False)
-    plot_coherent_noise(y_true=y_true_combined, y_pred=y_pred_combined, chadc=chadc_combined, eventid=eventid_combined, nch_per_erx=nch_per_erx, nerx=nerx, inputfolder=inputfolder, plotfolder=plotfolder)
+    plot_coherent_noise(y_true=y_true_combined, y_pred=y_pred_combined, chadc=chadc_combined, eventid=eventid_combined, nch_per_erx=nch_per_erx, nerx=nerx, label_suffix="combined_mean0", inputfolder=inputfolder, plotfolder=plotfolder)
+    # raise ValueError("stop")
 
     # Infer number of ADC channels from chadc
     n_channels = int(chadc_combined.max()) + 1
@@ -435,6 +441,9 @@ def plot_coherent_noise(y_true, y_pred, chadc, eventid, nch_per_erx, nerx, input
     plt.setp(axr.get_xticklabels(), visible=False)
 
     plt.tight_layout()
+    outfilename = os.path.join(plotfolder, 'noise_fractions_with_ratio.pdf')
+    if label_suffix:
+        outfilename = outfilename.replace(".pdf", f"_{label_suffix}.pdf")
     fig.savefig(os.path.join(plotfolder, 'noise_fractions_with_ratio.pdf'), bbox_inches='tight', pad_inches=0.05)
 
 

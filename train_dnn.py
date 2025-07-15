@@ -18,15 +18,21 @@ def main():
     # --- Define modules to use for training ---
     # modulenames_for_training = ["ML_F3W_WXIH0190", "ML_F3W_WXIH0191"]
     modulenames_for_training = ["ML_F3W_WXIH0190"]
+    # modulenames_for_training = ["ML_F3W_WXIH0190", "ML_F3W_WXIH0191", "ML_F3W_WXIH0192", "ML_F3W_WXIH0193"]
 
 
     # --- Define DNN parameters/architecture ---
     # nodes_per_layer = [128, 128, 64]
     nodes_per_layer = [512, 512, 512, 512, 64]
 
-    dropout_rate = 0.2
+    # dropout_rate = 0.0
+    dropout_rate = 0.05
+    # dropout_rate = 0.1
+    # dropout_rate = 0.2
 
+    # modeltag = "batch128" # a custom 
     modeltag = "" # a custom 
+
     override_full_model_name = False # If true, it will be named only f'new_model_name}' instead of an auto-generated name based on its parameters
     new_model_name = "TESTTEST"
 
@@ -74,6 +80,10 @@ def main():
     X_val   = torch.cat(X_val_list,   dim=0)
     y_val   = torch.cat(y_val_list,   dim=0)
 
+    # # ---- take the leading 10 % (already shuffled) ----
+    # X_train, y_train = first_fraction(X_train, y_train, frac=0.10)
+    # X_val,   y_val   = first_fraction(X_val,   y_val,   frac=0.10)
+
     # Verify concatenation
     print(f"Final shapes: X_train {X_train.shape}, y_train {y_train.shape}")
     print(f"              X_val   {X_val.shape},   y_val   {y_val.shape}")
@@ -100,13 +110,13 @@ def main():
 
     # --- Training Setup ---
     loss_fn = torch.nn.MSELoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3 * len(modulenames_for_training))
     scheduler = ReduceLROnPlateau(
         optimizer,
         mode='min',
         factor=0.5,
-        patience=7,
-        min_lr=1e-7,
+        patience=5,
+        min_lr=1e-6,
     )
 
     # --- Training Loop ---
@@ -190,6 +200,9 @@ def main():
     print(f"Best model state saved to: {modelfolder}/regression_dnn_best.pth")
 
 
+def first_fraction(X, y, frac=0.10):
+    k = int(X.size(0) * frac)
+    return X[:k], y[:k]
 
 
 if __name__ == '__main__':

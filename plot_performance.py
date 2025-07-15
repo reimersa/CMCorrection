@@ -23,6 +23,8 @@ def main():
     # modulename_for_evaluation = "ML_F3W_WXIH0191"
     # modulename_for_evaluation = "ML_F3W_WXIH0192"
 
+    username_load_model_from = "areimers"
+
     modelname = "regression_dnn"
     # modelname = "linreg"
 
@@ -84,7 +86,7 @@ def main():
     model = models.DNNFlex(input_dim=X_train.shape[1], nodes_per_layer=nodes_per_layer, dropout_rate=dropout_rate, tag=modeltag).to(device)
     if override_full_model_name:
         model.override_model_string(new_model_name)
-    modelfolder = f"/eos/user/{os.getenv('USER')[0]}/{os.getenv('USER')}/hgcal/dnn_models/{'_'.join(modulenames_used_for_training)}/{model.get_model_string()}"
+    modelfolder = f"/eos/user/{username_load_model_from[0]}/{username_load_model_from}/hgcal/dnn_models/{'_'.join(modulenames_used_for_training)}/{model.get_model_string()}"
     plotfolder = f"plots/performance/{'_'.join(modulenames_used_for_training)}/{model.get_model_string()}/inputs_from_{modulename_for_evaluation}"
     os.makedirs(name=plotfolder, exist_ok=True)
 

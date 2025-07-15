@@ -67,6 +67,7 @@ python plot_performance.py
 There is a couple of settings to adjust in that file, largely identical with those used when training the DNN:
 - `modulenames_used_for_training`: `list[str]` of the modules that were used to train the DNN
 - `modulename_for_evaluation`: `str` of the module whose data should be used to evaluate the DNN
+- `username_load_model_from`: `str` that is the username of the user from whose `/eos` area the DNN model should be loaded.
 - `modelname`: `str` that can be either `regression_dnn` or `linreg` to distinguish between types of regression. 
 - `nodes_per_layer`: `list[int]` with the number of nodes in each hidden layer. The length of the list defines the number of hidden layers.
 - `dropout_rate`: `float` that gives the fraction (`0 <= dropout_rate <= 1`) of hidden nodes that are randomly disabled during training

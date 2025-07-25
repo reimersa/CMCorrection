@@ -32,7 +32,7 @@ def main():
         os.makedirs(name=inputfolder, exist_ok=True)
 
         # Open file and load tree
-        infilename = f"/afs/cern.ch/user/a/areimers/CMSSW_15_1_0_pre1/src/HGCalCommissioning/LocalCalibration/output/histofiller/input_features_{modulename}.root"
+        infilename = f"/eos/user/a/areimers/hgcal/output/histofiller/input_features_{modulename}.root"
         infile = uproot.open(infilename)
         tree = infile["InputFeatures"]
     

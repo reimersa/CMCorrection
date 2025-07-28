@@ -50,5 +50,6 @@ triton==3.3.0
 typing_extensions==4.13.2
 tzdata==2025.2
 uproot==5.6.2
+venv-pack==0.2.0
 xxhash==3.5.0
 zipp==3.21.0

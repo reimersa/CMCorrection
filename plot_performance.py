@@ -4,9 +4,16 @@ import torch
 import torch.nn as nn
 import os
 import math
+import re
 
 import utils
 import models
+
+modulename_for_evaluation = None
+new_model_name = None
+nodes_per_layer = None
+dropout_rate = None
+train_module = None 
 
 
 def main():
@@ -16,10 +23,10 @@ def main():
     # # modulename_model = "ML_F3W_WXIH0190_newtraining_4L_512N"
     # # modulename_model = "ML_F3W_WXIH0190"
 
-    modulenames_used_for_training = ["ML_F3W_WXIH0190"]
+    #modulenames_used_for_training = ["ML_F3W_WXIH0190"]
     # modulenames_used_for_training = ["ML_F3W_WXIH0190", "ML_F3W_WXIH0191"]
 
-    modulename_for_evaluation = "ML_F3W_WXIH0190"
+    #modulename_for_evaluation = "ML_F3W_WXIH0190"
     # modulename_for_evaluation = "ML_F3W_WXIH0191"
     # modulename_for_evaluation = "ML_F3W_WXIH0192"
 
@@ -29,20 +36,20 @@ def main():
     # modelname = "linreg"
 
     # nodes_per_layer = [128, 128, 64]
-    nodes_per_layer = [512, 512, 512, 512, 64]
+    #nodes_per_layer = [512, 512, 512, 512, 64]
 
     # dropout_rate = 0.0
-    dropout_rate = 0.05
+    #dropout_rate = 0.05
     # dropout_rate = 0.1
     # dropout_rate = 0.2
 
     modeltag = ""
     # modeltag = "fraction0p1"
 
-    override_full_model_name = False
+    override_full_model_name = True
     # new_model_name = "ML_F3W_WXIH0190_newtraining_4L_512N"
     # new_model_name = "ML_F3W_WXIH0190_ML_F3W_WXIH0191_newtraining"
-    new_model_name = "ML_F3W_WXIH0190_newtraining"
+    #new_model_name = "ML_F3W_WXIH0190_newtraining"
 
 
     
@@ -86,8 +93,8 @@ def main():
     model = models.DNNFlex(input_dim=X_train.shape[1], nodes_per_layer=nodes_per_layer, dropout_rate=dropout_rate, tag=modeltag).to(device)
     if override_full_model_name:
         model.override_model_string(new_model_name)
-    modelfolder = f"/eos/user/{username_load_model_from[0]}/{username_load_model_from}/hgcal/dnn_models/{'_'.join(modulenames_used_for_training)}/{model.get_model_string()}"
-    plotfolder = f"plots/performance/{'_'.join(modulenames_used_for_training)}/{model.get_model_string()}/inputs_from_{modulename_for_evaluation}"
+    modelfolder = f"/eos/user/{username_load_model_from[0]}/{username_load_model_from}/hgcal/dnn_models/{train_module}/{new_model_name}"
+    plotfolder = f"plots/performance/{modulename_for_evaluation}/{train_module}/{new_model_name}/inputs_from_{modulename_for_evaluation}"
     os.makedirs(name=plotfolder, exist_ok=True)
 
     pth_to_load = f"{modelfolder}/{modelname}_best.pth"
@@ -123,13 +130,20 @@ def main():
 
 
     # # --- Plot loss curves ---
-    plot_loss(modelfolder=modelfolder, plotfolder=plotfolder)
+    #plot_loss(modelfolder=modelfolder, plotfolder=plotfolder)
 
     # Call for each set
     # plot_all_diagnostics(inputs=inputs_train, y_true=y_train, y_pred=y_pred_train, chadc=chadc_train, label_suffix="train_mean0", inputfolder=inputfolder, plotfolder=plotfolder, use_unstandardized=False)
     # plot_all_diagnostics(inputs=inputs_val, y_true=y_val, y_pred=y_pred_val, chadc=chadc_val, label_suffix="val_mean0", inputfolder=inputfolder, plotfolder=plotfolder, use_unstandardized=False)
-    plot_all_diagnostics(inputs=inputs_combined, y_true=y_true_combined, y_pred=y_pred_combined, chadc=chadc_combined, label_suffix="combined_mean0", inputfolder=inputfolder, plotfolder=plotfolder, use_unstandardized=False)
-    plot_coherent_noise(y_true=y_true_combined, y_pred=y_pred_combined, chadc=chadc_combined, eventid=eventid_combined, nch_per_erx=nch_per_erx, nerx=nerx, label_suffix="combined_mean0", inputfolder=inputfolder, plotfolder=plotfolder)
+    #plot_all_diagnostics(inputs=inputs_combined, y_true=y_true_combined, y_pred=y_pred_combined, chadc=chadc_combined, label_suffix="combined_mean0", inputfolder=inputfolder, plotfolder=plotfolder, use_unstandardized=False)
+    coh_ratio_mean = plot_coherent_noise(
+       y_true=y_true_combined, y_pred=y_pred_combined,
+       chadc=chadc_combined, eventid=eventid_combined,
+       nch_per_erx=nch_per_erx, nerx=nerx,
+       label_suffix="combined_mean0",
+       inputfolder=inputfolder, plotfolder=plotfolder
+    )
+
     # raise ValueError("stop")
 
     # Infer number of ADC channels from chadc
@@ -151,6 +165,7 @@ def main():
     std_corrected_per_channel = np.std(residual_2d, axis=0)
 
     # Create a 1D histogram of input and corrected RMS per channel
+    """
     plt.figure(figsize=(8, 5))
     plt.hist(rms_true_per_channel, bins=30, alpha=0.6, label="Uncorrected", color='gray')
     plt.hist(rms_corrected_per_channel, bins=30, alpha=0.6, label="Corrected", color='tomato')
@@ -177,10 +192,11 @@ def main():
     plt.savefig(f"{plotfolder}/std_comparison_per_channel.pdf")
     print(f"Saved per-channel std comparison: {plotfolder}/std_comparison_per_channel.pdf")
     plt.close()
-
+    """
     # fractional improvement  (1 − corrected / uncorrected)
     frac_impr = 1.0 - (rms_corrected_per_channel / rms_true_per_channel)
     frac_impr_std = 1.0 - (std_corrected_per_channel / std_true_per_channel)
+    """
     plt.figure(figsize=(8, 5))
     plt.hist(frac_impr, bins=20, color="royalblue")
     plt.xlabel(r"Fractional improvement  $1-\mathrm{RMS}_{\rm corr}/\mathrm{RMS}_{\rm uncorr}$", fontsize=14)
@@ -193,7 +209,11 @@ def main():
     plt.savefig(f"{plotfolder}/rms_frac_improvement_per_channel.pdf")
     print(f"Saved: {plotfolder}/rms_frac_improvement_per_channel.pdf")
     plt.close()
-
+    """
+    # print mean fractional improvement
+    print("Fractional RMS improvement mean:", np.mean(frac_impr))
+    print("Fractional STD improvement mean:", np.mean(frac_impr_std))
+    """
     plt.figure(figsize=(8, 5))
     plt.hist(frac_impr_std, bins=20, color="mediumseagreen")
     plt.xlabel(r"Fractional improvement  $1-\sigma_{\rm corr}/\sigma_{\rm uncorr}$", fontsize=14)
@@ -206,7 +226,7 @@ def main():
     plt.savefig(f"{plotfolder}/std_frac_improvement_per_channel.pdf")
     print(f"Saved: {plotfolder}/std_frac_improvement_per_channel.pdf")
     plt.close()
-
+    """
     # selected_channels = [0, 17, 19, 37, 74, 111, 148, 185]
     selected_channels = [0, 37]
     for ch in selected_channels:
@@ -214,6 +234,7 @@ def main():
         os.makedirs(plotfolder_thischannel, exist_ok=True)
         rms_uncorr = rms_true_per_channel[ch]
         rms_corr = rms_corrected_per_channel[ch]
+        """
         plt.figure(figsize=(8, 5))
         plt.hist(y_combined_2d[:, ch], bins=100, alpha=0.6, label=f"Uncorrected (RMS = {np.sqrt(np.mean(y_combined_2d[:, ch]**2)):.2f})", color="gray")
         plt.hist(residual_2d[:, ch], bins=100, alpha=0.6, label=f"Corrected (RMS = {np.sqrt(np.mean(residual_2d[:, ch]**2)):.2f})", color="tomato")
@@ -227,13 +248,13 @@ def main():
         plt.savefig(f"{plotfolder_thischannel}/adc_distribution_channel{ch:03}.pdf")
         print(f"Saved: {plotfolder_thischannel}/adc_distribution_channel{ch:03}.pdf")
         plt.close()
-
+        """
         for erx_idx in range(12):
             cm_col = inputs_combined[:, erx_idx].reshape((n_events, n_channels))[:, ch]
             label = f"CM e-Rx {erx_idx:02}"
 
             # True ADC vs. CM e-Rx
-            utils.plot_y_vs_x_with_marginals(
+            """utils.plot_y_vs_x_with_marginals(
                 vals_x=cm_col,
                 vals_y=y_combined_2d[:, ch],
                 label_x=label,
@@ -260,7 +281,10 @@ def main():
                 label_y=f"Residual (Channel {ch})",
                 label_profile="Mean residual",
                 output_filename=f"{plotfolder_thischannel}/2d_residual_vs_cmerx{erx_idx:02}_channel{ch:03}.pdf"
-            )
+            )"""
+
+    return frac_impr, coh_ratio_mean
+
 
 def plot_coherent_noise(y_true, y_pred, chadc, eventid, nch_per_erx, nerx, inputfolder, plotfolder, label_suffix=""):
     """
@@ -378,6 +402,7 @@ def plot_coherent_noise(y_true, y_pred, chadc, eventid, nch_per_erx, nerx, input
         hist2d[:, erx], _ = np.histogram(vec, bins=bin_edges)
     
     # plot
+    """
     fig, ax = plt.subplots(figsize=(7,5))
     extent = [-0.5, nerx-0.5, y_min, y_max]   # x from -0.5 to 5.5 etc.
     im = ax.imshow(hist2d, origin='lower', aspect='auto', extent=extent, cmap='viridis')
@@ -388,16 +413,29 @@ def plot_coherent_noise(y_true, y_pred, chadc, eventid, nch_per_erx, nerx, input
     cb = fig.colorbar(im, ax=ax); cb.set_label("Events")
     plt.tight_layout()
     plt.savefig(f"{plotfolder}/ds_true_vs_erx.pdf")
-
+    """
     
     # --- ratios corr / true -------------------------------------------------
     inc_ratio   = inc_corr_arr   / inc_true_arr
     coh_ratio   = coh_corr_arr   / coh_true_arr
     coh_inc_true = coh_true_arr / inc_true_arr
     coh_inc_corr = coh_corr_arr / inc_corr_arr
+    # --- Mean coherent noise ratio ---
+    coh_ratio_mean = np.mean(coh_ratio)
+
+    #--- mean values for each coherent, incoherent noise ----------------------
+    mean_coh_true = np.mean(coh_true_arr)
+    mean_inc_true = np.mean(inc_true_arr)
+    mean_coh_corr = np.mean(coh_corr_arr)
+    mean_inc_corr = np.mean(inc_corr_arr)
+
+    print("Mean coherent true:", mean_coh_true)
+    print("Mean incoherent true:", mean_inc_true)
+    print("Mean coherent corrected:", mean_coh_corr)
+    print("Mean incoherent corrected:", mean_inc_corr)
 
     # --- two-row figure with shared x-axis ---------------------------------
-    fig = plt.figure(figsize=(7, 6))
+    """fig = plt.figure(figsize=(7, 6))
     gs  = fig.add_gridspec(3, 1, height_ratios=[3, 1, 1], hspace=0.05)
 
     ax1 = fig.add_subplot(gs[0])   # main panel
@@ -417,9 +455,9 @@ def plot_coherent_noise(y_true, y_pred, chadc, eventid, nch_per_erx, nerx, input
     ax1.set_ylabel('Noise (ADC)', fontsize=16, loc='top', labelpad=12)
     ax1.set_ylim(0., 3.)
     ax1.grid(ls='--', alpha=0.3)
-
+    """
     # combined legend
-    h1,l1 = ax1.get_legend_handles_labels()
+    """h1,l1 = ax1.get_legend_handles_labels()
     ax1.legend(h1, l1, loc='upper right', fontsize=14)
 
     # ── ratio panel ---------------------------------------------------------
@@ -443,19 +481,20 @@ def plot_coherent_noise(y_true, y_pred, chadc, eventid, nch_per_erx, nerx, input
     plt.setp(axr.get_xticklabels(), visible=False)
 
     plt.tight_layout()
+    """
     outfilename = os.path.join(plotfolder, 'noise_fractions_with_ratio.pdf')
-    if label_suffix:
+    """if label_suffix:
         outfilename = outfilename.replace(".pdf", f"_{label_suffix}.pdf")
     fig.savefig(os.path.join(plotfolder, 'noise_fractions_with_ratio.pdf'), bbox_inches='tight', pad_inches=0.05)
-
-
+    """
+    return coh_ratio_mean
 
 def overlay_hist(a, b, label_a, label_b, title, outfilename, bins=50):
     a = np.asarray(a).ravel()
     b = np.asarray(b).ravel()
     lo, hi  = min(a.min(), b.min()), max(a.max(), b.max())
     edges   = np.linspace(lo, hi, int(bins) + 1)
-    plt.figure(figsize=(6,4))
+    """plt.figure(figsize=(6,4))
     plt.hist(a, bins=edges, alpha=0.55, label=label_a)
     plt.hist(b, bins=edges, alpha=0.55, label=label_b)
     plt.title(title)
@@ -466,7 +505,7 @@ def overlay_hist(a, b, label_a, label_b, title, outfilename, bins=50):
     plt.savefig(outfilename)
     print(f"Wrote plot {outfilename}")
     plt.close()
-
+    """
 def plot_loss(modelfolder, plotfolder):
 
     # --- Load losses ---
@@ -475,7 +514,7 @@ def plot_loss(modelfolder, plotfolder):
 
     train_losses = np.load(f"{modelfolder}/train_losses.npy")
     val_losses = np.load(f"{modelfolder}/val_losses.npy")
-
+    """
     plt.figure(figsize=(8, 5))
     plt.plot(train_losses, label="Train Loss", marker='o')
     plt.plot(val_losses, label="Validation Loss", marker='x')
@@ -489,7 +528,7 @@ def plot_loss(modelfolder, plotfolder):
     loss_plot_path = f"{plotfolder}/loss_curve.pdf"
     plt.savefig(loss_plot_path)
     print(f"Saved loss plot to: {loss_plot_path}")
-
+    """
 def plot_all_diagnostics(inputs, y_true, y_pred, chadc, label_suffix, inputfolder, plotfolder, use_unstandardized=False):
     """Generate all diagnostic plots for a given dataset."""
 
@@ -521,7 +560,7 @@ def plot_all_diagnostics(inputs, y_true, y_pred, chadc, label_suffix, inputfolde
 
     print(f"[{label_suffix}] Mean True: {mean_true:.4f}, Mean Corrected: {mean_corrected:.4f}")
     print(f"[{label_suffix}] RMS True: {rms_true:.4f}, RMS Corrected: {rms_corrected:.4f}")
-
+    """
     # --- True vs Predicted
     utils.plot_y_vs_x_with_marginals(
         vals_x=y_true,
@@ -553,8 +592,9 @@ def plot_all_diagnostics(inputs, y_true, y_pred, chadc, label_suffix, inputfolde
             label_profile="Profile: mean predicted ADC",
             output_filename=f"{plotfolder}/predicted_ADC_vs_CMerx{idx:02}_{label_suffix}.pdf"
         )
-
+    """
     # --- RMS Bar Plot
+    """
     plt.figure(figsize=(6, 5))
     plt.bar(["Uncorrected", "Corrected"], [rms_true, rms_corrected], color=["steelblue", "tomato"])
     plt.ylabel("RMS (ADC units)")
@@ -564,7 +604,7 @@ def plot_all_diagnostics(inputs, y_true, y_pred, chadc, label_suffix, inputfolde
     plt.savefig(f"{plotfolder}/rms_comparison_{label_suffix}.pdf")
     print(f"Saved RMS comparison plot: {plotfolder}/rms_comparison_{label_suffix}.pdf")
     plt.close()
-
+    """
 
 
 if __name__ == '__main__':

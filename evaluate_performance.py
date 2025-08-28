@@ -24,11 +24,19 @@ def main():
     cfg = EvalConfig(
         modulenames_used_for_training=["ML_F3W_WXIH0190"], 
         modulename_for_evaluation="ML_F3W_WXIH0190", 
+
         nodes_per_layer=[512, 512, 512, 512, 64],
+        # nodes_per_layer=[16, 16, 16],
+
         dropout_rate=0.0,
         modeltag="",
+
         inputfoldertag="", 
-        ncmchannels=12
+        # inputfoldertag="_1cm1ch", 
+        # inputfoldertag="_1cm2ch", 
+
+        ncmchannels=12,
+        # ncmchannels=1,
     )
 
     # load data
@@ -43,12 +51,21 @@ def main():
     # Analytic inferencer
     analytic_inferencer = AnalyticInferencer(drop_constant_cm=True)    
     
-    for split_name in ["combined"]:
-        s = io.get_split(split_name)
-        (variants, variants_with_cms) = build_variants(split=s, cfg=cfg, model_folder=model_dir, dnn_inferencer=dnn_inferencer, analytic_inferencer=analytic_inferencer, k_list=(0, 1, 3, 5, 10))
-        (residuals, residuals_with_cms) = make_residuals(variants, cm_df=s.cm_df)  
+    # for split_name in ["combined"]:
+    #     s = io.get_split(split_name)
+    #     (variants, variants_with_cms) = build_variants(split_predict=s, split_correction=s, cfg=cfg, model_folder=model_dir, dnn_inferencer=dnn_inferencer, analytic_inferencer=analytic_inferencer, k_list=(0, 1, 3, 5, 10))
+    #     (residuals, residuals_with_cms) = make_residuals(variants, cm_df=s.cm_df)  
         
-        plot_split_diagnostics(split_name=split_name, cfg=cfg, model_folder=model_dir, cm_df=s.cm_df, variants=variants, variants_with_cms=variants_with_cms, residuals=residuals, residuals_with_cms=residuals_with_cms)
+    #     plot_split_diagnostics(split_name=split_name, cfg=cfg, model_folder=model_dir, cm_df=s.cm_df, variants=variants, variants_with_cms=variants_with_cms, residuals=residuals, residuals_with_cms=residuals_with_cms)
+
+    predict_with_correction = [("val_ordered", "train_ordered")]
+    for split_name_predict, split_name_correction in predict_with_correction:
+        s_predict = io.get_split(split_name_predict)
+        s_correction = io.get_split(split_name_correction)
+        (variants, variants_with_cms) = build_variants(split_predict=s_predict, split_correction=s_correction, cfg=cfg, model_folder=model_dir, dnn_inferencer=dnn_inferencer, analytic_inferencer=analytic_inferencer, k_list=(0, 1, 3, 5, 10))
+        (residuals, residuals_with_cms) = make_residuals(variants, cm_df=s_predict.cm_df)  
+        
+        plot_split_diagnostics(split_name=f"{split_name_predict}_from_{split_name_correction}", cfg=cfg, model_folder=model_dir, cm_df=s_predict.cm_df, variants=variants, variants_with_cms=variants_with_cms, residuals=residuals, residuals_with_cms=residuals_with_cms)
         
 
 def plot_split_diagnostics(split_name: str, cfg: EvalConfig, model_folder: str, cm_df: pd.DataFrame, variants: Dict[str, pd.DataFrame], variants_with_cms: Dict[str, pd.DataFrame], residuals: Dict[str, pd.DataFrame], residuals_with_cms: Dict[str, pd.DataFrame]):
@@ -64,18 +81,21 @@ def plot_split_diagnostics(split_name: str, cfg: EvalConfig, model_folder: str, 
 
     plot_per_channel_diagnostics(split_name=split_name, variants=variants, residuals=residuals, plot_dir=os.path.join(plot_dir, "per_channel"))
 
-    # 2d plots with marginals
+    # # # 2d plots with marginals
     plot_vs_each_cm(split_name=split_name, cm_df=cm_df, variants=variants, residuals=residuals, plot_dir=os.path.join(plot_dir, "per_channel_2d_vs_cm"))
 
-    # coh/inc noise ratios
+    # # channel vs. channel
+    # plot_channeli_vs_channelj(split_name=split_name, ch_i=1, ch_j=0, variants=variants, residuals=residuals, plot_dir=os.path.join(plot_dir, "per_channel_2d_vs_channel"))
+
+    # # coh/inc noise ratios
     compute_and_plot_coherent_noise(split_name=split_name, cfg=cfg, variants=variants, residuals=residuals, plot_dir=os.path.join(plot_dir, "coherent_noise"), trunc_fracs=(1.0, 0.95, 0.90))
 
 
-    # Eigen decompositions
+    # # Eigen decompositions
     plot_all_eigenvalues(split_name=split_name, variants=variants, residuals=residuals, plot_dir=os.path.join(plot_dir, "eigenvalues"))
     plot_all_eigenvectors(cfg=cfg, split_name=split_name, variants=variants, residuals=residuals, k=4, plot_dir=os.path.join(plot_dir, "eigenvectors"))
     plot_all_projection_hists(split_name=split_name, variants=variants, residuals=residuals, k=4, plot_dir=os.path.join(plot_dir, "eigenprojections"))
-    plot_loss(model_folder=model_folder, plot_dir=plot_dir)
+    # plot_loss(model_folder=model_folder, plot_dir=plot_dir)
 
 
 # -----------------------------
@@ -208,6 +228,25 @@ class DataIO:
 
         self.combined = self._build_split(name="combined", targets_flat=targets_combined, inputs_flat=inputs_combined, channels_flat=channels_combined, eventid_flat=eventid_combined, colnames_inputs=colnames)
 
+
+        # load arrays
+        inputs_train_ordered = np.load(file=os.path.join(folder, "inputs_train_ordered.npy"), mmap_mode="r")
+        inputs_val_ordered   = np.load(file=os.path.join(folder, "inputs_val_ordered.npy"),   mmap_mode="r")
+        targets_train_ordered = np.load(file=os.path.join(folder, "targets_train_ordered.npy"), mmap_mode="r")
+        targets_val_ordered   = np.load(file=os.path.join(folder, "targets_val_ordered.npy"),   mmap_mode="r")
+        train_idx_ordered   = np.load(file=os.path.join(folder, "indices_train_ordered.npy"), mmap_mode="r")
+        val_idx_ordered     = np.load(file=os.path.join(folder, "indices_val_ordered.npy"),   mmap_mode="r")
+
+        # split indices to train/val
+        chadc_train_ordered, chadc_val_ordered       = chadc_full[train_idx_ordered],   chadc_full[val_idx_ordered]
+        eventid_train_ordered, eventid_val_ordered   = eventid_full[train_idx_ordered], eventid_full[val_idx_ordered]
+
+        # build train split
+        self.train_ordered = self._build_split(name="train_ordered", targets_flat=np.asarray(a=targets_train_ordered).squeeze(), inputs_flat=np.asarray(a=inputs_train_ordered), channels_flat=np.asarray(a=chadc_train_ordered), eventid_flat=np.asarray(a=eventid_train_ordered), colnames_inputs=colnames)
+
+        # build val split
+        self.val_ordered = self._build_split(name="val_ordered", targets_flat=np.asarray(a=targets_val_ordered).squeeze(), inputs_flat=np.asarray(a=inputs_val_ordered), channels_flat=np.asarray(a=chadc_val_ordered), eventid_flat=np.asarray(a=eventid_val_ordered), colnames_inputs=colnames)
+
         # mark loaded
         self._loaded = True
 
@@ -334,18 +373,22 @@ class AnalyticInferencer:
     def _compute_weights(self, meas_df: pd.DataFrame, cm_df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
         if not np.array_equal(meas_df.index.values, cm_df.index.values):
             raise RuntimeError("AnalyticInferencer: meas_df and cm_df must share identical row indices.")
-        # drop strictly-constant CM columns (no epsilon)
+        # drop strictly-constant CM columns
         cm_std = cm_df.std(axis=0)
         keep_mask = (cm_std > 0).values if self.drop_constant_cm else np.ones(cm_df.shape[1], dtype=bool)
         if not keep_mask.any():
-            raise RuntimeError("AnalyticInferencer: all CM columns are constant—cannot invert Σ_cc.")
+            raise RuntimeError("AnalyticInferencer: all CM columns are constant—cannot invert their covariance.")
 
-        C = cm_df.loc[:, cm_df.columns[keep_mask]].to_numpy()
-        M = meas_df.to_numpy()
-        E = M.shape[0]
+        # C = cm_df.loc[:, cm_df.columns[keep_mask]].to_numpy()
+        # M = meas_df.to_numpy()
+        # E = M.shape[0]
 
-        Sigma_mc = (M.T @ C) / E                                                  # (N, K')
-        Sigma_cc = (C.T @ C) / E                                                  # (K', K')
+        # Sigma_mc = (M.T @ C) / E                                                  # (N, K')
+        # Sigma_cc = (C.T @ C) / E                                                  # (K', K')
+        print("computig Sigma_mc")
+        Sigma_mc = compute_cov(df_i=meas_df, df_j=cm_df.loc[:, cm_df.columns[keep_mask]])
+        print("computig Sigma_cc")
+        Sigma_cc = compute_cov(df_i=cm_df.loc[:, cm_df.columns[keep_mask]], df_j=cm_df.loc[:, cm_df.columns[keep_mask]])
         W = Sigma_mc @ np.linalg.inv(Sigma_cc)                                    # (N, K')
         return W, keep_mask
 
@@ -353,32 +396,78 @@ class AnalyticInferencer:
         W, keep_mask = self._compute_weights(meas_df=split.measurements_df, cm_df=split.cm_df)
         self._cache[id(split)] = {"W": W, "keep_mask": keep_mask, "index": split.measurements_df.index.values, "columns": split.measurements_df.columns.values}
 
-    def predict(self, split: SplitData) -> pd.DataFrame:
-        if id(split) not in self._cache: 
-            self.fit(split)
+    def predict(self, split_predict: SplitData, split_correction: SplitData) -> pd.DataFrame:
+        if id(split_correction) not in self._cache: 
+            self.fit(split_correction)
 
-        entry = self._cache[id(split)]
+        entry = self._cache[id(split_correction)]
         W, keep_mask = entry["W"], entry["keep_mask"]
-        C = split.cm_df.loc[:, split.cm_df.columns[keep_mask]].to_numpy()
+        C = split_predict.cm_df.loc[:, split_predict.cm_df.columns[keep_mask]].to_numpy()
+        # print(C)
+        # print(W.T)
         Y = C @ W.T
-        preds = pd.DataFrame(Y, index=split.measurements_df.index, columns=split.measurements_df.columns)
+        # print(Y)
+        # print(split_predict.measurements_df.index)
+        # preds = pd.DataFrame(Y, index=split_predict.measurements_df.index, columns=split_predict.measurements_df.columns)
+        Y.index = split_predict.measurements_df.index
+        Y.columns = split_predict.measurements_df.columns
+        preds = Y
+        # print(preds)
 
         # sanity (exact alignment)
-        if not np.array_equal(preds.index.values, entry["index"]): 
-            raise RuntimeError("AnalyticInferencer: event index changed since fit().")
+        # if not np.array_equal(preds.index.values, entry["index"]): 
+        #     raise RuntimeError("AnalyticInferencer: event index changed since fit().")
         if not np.array_equal(preds.columns.values, entry["columns"]): 
             raise RuntimeError("AnalyticInferencer: channel columns changed since fit().")
         return preds
 
-    def predict_k(self, split: SplitData, k: int) -> pd.DataFrame:
-        base = self.predict(split=split)
-        if k <= 0: return base
+    # def predict_k_complicated(self, split: SplitData, k: int) -> pd.DataFrame:
+    #     base = self.predict(split=split)
+    #     if k <= 0: return base
 
-        # residuals (E×N)
-        Rm = (split.measurements_df - base).to_numpy()
+    #     # residuals (E×N)
+    #     Rm = (split.measurements_df - base).to_numpy()
+
+    #     # channel covariance
+    #     Cr = (Rm.T @ Rm) / Rm.shape[0]
+
+    #     # eigendecomposition (descending)
+    #     vals, vecs = np.linalg.eigh(Cr)
+    #     order = np.argsort(vals)[::-1]
+    #     vals = vals[order]; vecs = vecs[:, order]
+
+    #     k = int(min(k, vecs.shape[1] - 1))
+    #     if k == 0: 
+    #         return base
+
+    #     U = vecs[:, :k]
+    #     lam = vals[:k]
+    #     R0 = Cr - (U * lam) @ U.T
+    #     V  = np.linalg.solve(R0, U)
+    #     D  = U.T @ V + np.diag(1.0 / lam)
+    #     Ahat = Rm @ V @ np.linalg.inv(D)
+        
+    #     corr = Ahat @ U.T
+    #     corrected = base + pd.DataFrame(corr, index=base.index, columns=base.columns)
+    #     return corrected
+
+    def predict_k(self, split_predict: SplitData, split_correction: SplitData, k: int) -> pd.DataFrame:
+
+        print(f"--> Predicting now for k={k}")
+        base = self.predict(split_predict=split_predict, split_correction=split_correction)
+        base_correction = self.predict(split_predict=split_correction, split_correction=split_correction)
+        if k <= 0:
+            return base
+
+        # residuals
+        Rm = (split_predict.measurements_df - base).to_numpy()
 
         # channel covariance
-        Cr = (Rm.T @ Rm) / Rm.shape[0]
+        # Cr = (Rm.T @ Rm) / Rm.shape[0]
+        print("Computing Cr")
+        print(f"split_correction.measurements_df shape: {split_correction.measurements_df.shape}")
+        print(f"base_correction shape: {base_correction.shape}")
+        Cr = compute_cov(df_i=split_correction.measurements_df - base_correction, df_j=split_correction.measurements_df - base_correction)
 
         # eigendecomposition (descending)
         vals, vecs = np.linalg.eigh(Cr)
@@ -386,17 +475,15 @@ class AnalyticInferencer:
         vals = vals[order]; vecs = vecs[:, order]
 
         k = int(min(k, vecs.shape[1] - 1))
-        if k == 0: 
+        if k == 0:
             return base
 
-        U = vecs[:, :k]
-        lam = vals[:k]
-        R0 = Cr - (U * lam) @ U.T
-        V  = np.linalg.solve(R0, U)
-        D  = U.T @ V + np.diag(1.0 / lam)
-        Ahat = Rm @ V @ np.linalg.inv(D)
-        
-        corr = Ahat @ U.T
+        # top-k eigenvectors (columns orthonormal if from eigh)
+        U = vecs[:, :k]  # N×k
+
+        # correction
+        corr = Rm @ (U @ U.T)  # E×N
+
         corrected = base + pd.DataFrame(corr, index=base.index, columns=base.columns)
         return corrected
 
@@ -414,33 +501,38 @@ def add_cms_to_measurements_df(measurements_df: pd.DataFrame, cm_df: pd.DataFram
         X = pd.concat([measurements_df, cm_df[keep]], axis=1)
     return X
 
-def build_variants(split: SplitData, cfg: EvalConfig, model_folder: str, dnn_inferencer: Optional[DNNInferencer] = None, analytic_inferencer: Optional[AnalyticInferencer] = None, k_list: Tuple[int, ...] = (0, 1, 3)) -> tuple[Dict[str, pd.DataFrame], Dict[str, pd.DataFrame]]:
+def build_variants(split_predict: SplitData, split_correction: SplitData, cfg: EvalConfig, model_folder: str, dnn_inferencer: Optional[DNNInferencer] = None, analytic_inferencer: Optional[AnalyticInferencer] = None, k_list: Tuple[int, ...] = (0, 1, 3)) -> tuple[Dict[str, pd.DataFrame], Dict[str, pd.DataFrame]]:
     """
     Return a dict of aligned event x channel DataFrames for this split.
-    Keys may include: 'true', 'dnn', 'wiener_k=0, 'wiener_k=1', 'wiener_k=3', ...
+    Keys may include: 'true', 'dnn', 'analytic_k0, 'analytic_k1', 'analytic_k3', ...
     """
     variants: Dict[str, pd.DataFrame] = {}
     variants_with_cms: Dict[str, pd.DataFrame] = {}
 
     # 1) always include ground truth
-    variants["true"] = split.measurements_df
-    variants_with_cms["true"] = add_cms_to_measurements_df(measurements_df=split.measurements_df, cm_df=split.cm_df, drop_constant_cm=False)
+    variants["true"] = split_predict.measurements_df
+    variants_with_cms["true"] = add_cms_to_measurements_df(measurements_df=split_predict.measurements_df, cm_df=split_predict.cm_df, drop_constant_cm=False)
+    # print(variants["true"])
 
     # 2) DNN (cached through run_dnn_for_split)
     if dnn_inferencer is not None:
-        variants["dnn"] = run_dnn_for_split(split=split, cfg=cfg, model_folder=model_folder, inferencer=dnn_inferencer)
-        variants_with_cms["dnn"] = add_cms_to_measurements_df(measurements_df=variants["dnn"], cm_df=split.cm_df, drop_constant_cm=False)
+        variants["dnn"] = run_dnn_for_split(split=split_predict, cfg=cfg, model_folder=model_folder, inferencer=dnn_inferencer)
+        variants_with_cms["dnn"] = add_cms_to_measurements_df(measurements_df=variants["dnn"], cm_df=split_predict.cm_df, drop_constant_cm=False)
 
-    # 3) Analytic (Wiener and Wiener+K)
+    # 3) Analytic (analytic and analytic+K)
     if analytic_inferencer is not None:
 
-        # Extra K modes (k=0 is standard Wiener)
+        # Extra K modes (k=0 is standard analytic)
         for k in k_list:
             if k < 0: 
                 continue
-            df_k = analytic_inferencer.predict_k(split=split, k=k)
-            variants[f"wiener_k={k}"] = df_k
-            variants_with_cms[f"wiener_k={k}"] = add_cms_to_measurements_df(measurements_df=variants[f"wiener_k={k}"], cm_df=split.cm_df, drop_constant_cm=False)
+            df_k = analytic_inferencer.predict_k(split_predict=split_predict, split_correction=split_correction, k=k)
+            variants[f"analytic_k{k}"] = df_k
+            variants_with_cms[f"analytic_k{k}"] = add_cms_to_measurements_df(measurements_df=variants[f"analytic_k{k}"], cm_df=split_predict.cm_df, drop_constant_cm=False)
+
+            # df_k = analytic_inferencer.predict_k_complicated(split=split, k=k)
+            # variants[f"analytic_complicated_k{k}"] = df_k
+            # variants_with_cms[f"analytic_complicated_k{k}"] = add_cms_to_measurements_df(measurements_df=variants[f"analytic_complicated_k{k}"], cm_df=split.cm_df, drop_constant_cm=False)
 
     # 4) final sanity: exact same index/columns as truth
     for key, df in variants.items():
@@ -458,23 +550,27 @@ def build_variants(split: SplitData, cfg: EvalConfig, model_folder: str, dnn_inf
 
 # ---------- Stats utilities: covariance, correlation, residuals ----------
 
-def compute_cov(df: pd.DataFrame) -> pd.DataFrame:
+def compute_cov(df_i: pd.DataFrame, df_j: pd.DataFrame) -> pd.DataFrame:
     """Pairwise empirical covariance with NaN-aware averaging (events x channels)."""
+    print(f"--> Computing a covariance matrix from {df_i.shape} and {df_j.shape}")
     # mask of valid entries (NaN = missing)
-    mask = df.notna().astype(float)
-    X = df.fillna(0.0).to_numpy()
-    M = mask.to_numpy()
+    mask_i = df_i.notna().astype(float)
+    mask_j = df_j.notna().astype(float)
+    X_i = df_i.fillna(0.0).to_numpy()
+    X_j = df_j.fillna(0.0).to_numpy()
+    M_i = mask_i.to_numpy()
+    M_j = mask_j.to_numpy()
 
     # per-pair counts and sums
-    N = M.T @ M                    # valid-event counts per channel pair
-    S = X.T @ X                    # sum of products (zeros where NaN)
+    N = M_i.T @ M_j                    # valid-event counts per channel pair
+    S = X_i.T @ X_j                    # sum of products (zeros where NaN)
 
     # average only over valid events
     with np.errstate(invalid="ignore", divide="ignore"):
         C = S / N
     C = np.nan_to_num(C, nan=0.0, posinf=0.0, neginf=0.0)
 
-    return pd.DataFrame(C, index=df.columns, columns=df.columns)
+    return pd.DataFrame(C, index=df_i.columns, columns=df_j.columns)
 
 
 def corr_from_cov(cov: pd.DataFrame) -> pd.DataFrame:
@@ -492,7 +588,7 @@ def corr_from_cov(cov: pd.DataFrame) -> pd.DataFrame:
 
 def compute_cov_corr(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Convenience wrapper returning (cov, corr)."""
-    cov = compute_cov(df)
+    cov = compute_cov(df_i=df, df_j=df)
     corr = corr_from_cov(cov)
     return (cov, corr)
 
@@ -541,12 +637,12 @@ def compute_per_channel_stats(true_df: pd.DataFrame, pred_df: pd.DataFrame, res_
     true = true_df.to_numpy()
     res  = res_df.to_numpy()
 
-    rms_true = np.sqrt((true ** 2).mean(axis=0))
-    rms_corr = np.sqrt((res  ** 2).mean(axis=0))
+    rms_true = np.sqrt(np.mean(true ** 2, axis=0))
+    rms_corr = np.sqrt(np.mean(res ** 2, axis=0))
     rms_frac_improvement = 1.0 - (rms_corr / rms_true)
 
-    std_true = true.std(axis=0, ddof=0)
-    std_corr = res.std(axis=0, ddof=0)
+    std_true = np.std(true, axis=0, ddof=0)
+    std_corr = np.std(res, axis=0, ddof=0)
     std_frac_improvement = 1.0 - (std_corr / std_true)
 
     return {"rms_true": rms_true, "rms_corr": rms_corr, "rms_frac_improvement": rms_frac_improvement, "std_true": std_true, "std_corr": std_corr, "std_frac_improvement": std_frac_improvement}
@@ -556,13 +652,18 @@ def plot_per_channel_diagnostics(split_name: str, variants: Dict[str, pd.DataFra
     os.makedirs(plot_dir, exist_ok=True)
 
     # color palette consistent with your previous script
-    method_color = {"dnn": "tomato", "wiener_k=0": "seagreen", "wiener_k=1": "orange", "wiener_k=3": "pink"}
+    method_color = {"dnn": "tomato", "analytic_k0": "seagreen", "analytic_k1": "orange", "analytic_k3": "pink"}
 
     for key, pred in variants.items():
         if key == "true":
             continue
 
+        # print(key)
+        # print(variants["true"])
+        # print(pred)
+        # print(residuals[key])
         stats = compute_per_channel_stats(true_df=variants["true"], pred_df=pred, res_df=residuals[key])
+        # print(stats)
 
         # ---- per-method plots (own subfolder)
         col = method_color.get(key, "royalblue")
@@ -597,15 +698,81 @@ def plot_vs_each_cm(split_name: str, cm_df: pd.DataFrame, variants: Dict[str, pd
         utils.plot_y_vs_x_with_marginals(vals_x=x_flat, vals_y=y_true_flat, label_x=f"{cm_name} (ADC)", label_y="Uncorrected (ADC)", label_profile="profile", output_filename=os.path.join(subdir, f"uncorr_vs_{cm_name}_{split_name}.pdf"), nbins_x=80, nbins_y=80)
 
         # predictions and residuals vs CM
-        for key, df_pred in variants.items():
-            if key == "true": 
+
+        for method, df_pred in variants.items():
+            if method == "true": 
                 continue
             y_pred_flat = df_pred.to_numpy().ravel()
-            y_res_flat  = residuals[key].to_numpy().ravel()
+            y_res_flat  = residuals[method].to_numpy().ravel()
 
-            utils.plot_y_vs_x_with_marginals(vals_x=x_flat, vals_y=y_pred_flat, label_x=f"{cm_name} (ADC)", label_y=f"{key} corrected (ADC)", label_profile="profile", output_filename=os.path.join(subdir, f"{key}_corr_vs_{cm_name}_{split_name}.pdf"), nbins_x=80, nbins_y=80)
+            utils.plot_y_vs_x_with_marginals(vals_x=x_flat, vals_y=y_pred_flat, label_x=f"{cm_name} (ADC)", label_y=f"{method} corrected (ADC)", label_profile="profile", output_filename=os.path.join(subdir, f"{method}_corr_vs_{cm_name}_{split_name}.pdf"), nbins_x=80, nbins_y=80)
 
-            utils.plot_y_vs_x_with_marginals(vals_x=x_flat, vals_y=y_res_flat,  label_x=f"{cm_name} (ADC)", label_y=f"{key} residual (ADC)",  label_profile="profile",  output_filename=os.path.join(subdir, f"{key}_residual_vs_{cm_name}_{split_name}.pdf"), nbins_x=80, nbins_y=80)
+            utils.plot_y_vs_x_with_marginals(vals_x=x_flat, vals_y=y_res_flat,  label_x=f"{cm_name} (ADC)", label_y=f"{method} residual (ADC)",  label_profile="profile",  output_filename=os.path.join(subdir, f"{method}_residual_vs_{cm_name}_{split_name}.pdf"), nbins_x=80, nbins_y=80)
+
+        
+        # methods_to_overlay = ["true", "dnn", "analytic_k0", "analytic_k1", "analytic_k3", "analytic_k5", "analytic_k10"]
+        methods_to_overlay = ["true", "dnn", "analytic_k0", "analytic_k1", "analytic_k3", "analytic_k5"]
+        utils.overlay_profiles(
+            vals_x=x_flat, 
+            list_of_vals_y=[variants[m].to_numpy().ravel() for m in methods_to_overlay], 
+            label_x=cm_name, 
+            label_y="ADC", 
+            labels_profiles=methods_to_overlay, 
+            output_filename=os.path.join(subdir, f"profiles_variants_{cm_name}_{split_name}.pdf"), 
+            nbins_x=50, 
+            ratio_to=0
+        )
+        utils.overlay_profiles(
+            vals_x=x_flat, 
+            list_of_vals_y=[residuals[m].to_numpy().ravel() for m in methods_to_overlay if m != "true"], 
+            label_x=cm_name, 
+            label_y="ADC", 
+            labels_profiles=[m for m in methods_to_overlay if m != "true"], 
+            output_filename=os.path.join(subdir, f"profiles_residuals_{cm_name}_{split_name}.pdf"), 
+            nbins_x=50, 
+        )
+
+def plot_channeli_vs_channelj(split_name: str, ch_i: int, ch_j: int, variants: Dict[str, pd.DataFrame], residuals: Dict[str, pd.DataFrame], plot_dir: str) -> None:
+
+    channelname_i = f"ch_{ch_i:03d}"
+    channelname_j = f"ch_{ch_j:03d}"
+
+    subdir = os.path.join(plot_dir, f"{channelname_j}_vs_{channelname_i}")
+    os.makedirs(subdir, exist_ok=True)
+
+    # predictions and residuals vs CM
+    for method, df_pred in variants.items():
+        x_flat = df_pred[channelname_j].to_numpy().ravel()
+        y_flat = df_pred[channelname_i].to_numpy().ravel()
+        utils.plot_y_vs_x_with_marginals(vals_x=x_flat, vals_y=y_flat, label_x=f"{method} {channelname_j} (ADC)", label_y=f"{method} {channelname_i} (ADC)", label_profile="profile", output_filename=os.path.join(subdir, f"{method}_{channelname_j}_vs_{channelname_i}_{split_name}.pdf"), nbins_x=80, nbins_y=80)
+
+    
+    for method, df_pred in residuals.items():
+        x_flat = df_pred[channelname_j].to_numpy().ravel()
+        y_flat = df_pred[channelname_i].to_numpy().ravel()
+        utils.plot_y_vs_x_with_marginals(vals_x=x_flat, vals_y=y_flat,  label_x=f"{method} residual {channelname_j} (ADC)", label_y=f"{method} residual {channelname_i} (ADC)",  label_profile="profile",  output_filename=os.path.join(subdir, f"{method}_residual_{channelname_j}_vs_{channelname_i}_{split_name}.pdf"), nbins_x=80, nbins_y=80)
+    
+    # methods_to_overlay = ["true", "dnn", "analytic_k0", "analytic_k1", "analytic_k3", "analytic_k5", "analytic_k10"]
+    methods_to_overlay = ["true", "dnn", "analytic_k0"]
+    utils.overlay_profiles(
+        vals_x=variants[methods_to_overlay[0]][channelname_j].to_numpy().ravel(), 
+        list_of_vals_y=[variants[m][channelname_i].to_numpy().ravel() for m in methods_to_overlay], 
+        label_x=f"{channelname_j} (ADC)", 
+        label_y=f"{channelname_i} (ADC)", 
+        labels_profiles=methods_to_overlay, 
+        output_filename=os.path.join(subdir, f"profiles_variants_{channelname_j}_vs_{channelname_i}_{split_name}.pdf"), 
+        nbins_x=50, 
+        ratio_to=0
+    )
+    utils.overlay_profiles(
+        vals_x=residuals[[m for m in methods_to_overlay if m != "true"][0]][channelname_i].to_numpy().ravel(), 
+        list_of_vals_y=[residuals[m][channelname_i].to_numpy().ravel() for m in methods_to_overlay if m != "true"], 
+        label_x=f"residual {channelname_j} (ADC)", 
+        label_y=f"residual {channelname_i} (ADC)", 
+        labels_profiles=[m for m in methods_to_overlay if m != "true"], 
+        output_filename=os.path.join(subdir, f"profiles_residuals_{channelname_j}_vs_{channelname_i}_{split_name}.pdf"), 
+        nbins_x=50, 
+    )
 
 # ---------- Coherent / Incoherent noise: computations ----------
 @dataclass
@@ -640,28 +807,30 @@ def coh_inc_from_sums(direct: np.ndarray, alternating: np.ndarray, nch_per_erx: 
     coh = np.sign(delta) * np.sqrt(abs(delta)) / nch_per_erx
     return coh, inc
 
-def compute_coherent_noise_for_method(method: str, true_df: pd.DataFrame, res_df: pd.DataFrame, nch_per_erx: int, nerx: int, trunc_frac: float = 1.0) -> CoherentNoiseResult:
-    n_channels = true_df.shape[1]
-    blocks = erx_channel_blocks(n_channels=n_channels, nch_per_erx=nch_per_erx, nerx=nerx)
+def compute_coherent_noise_for_method(method: str, true_df: pd.DataFrame, res_df: pd.DataFrame, groups: Dict[int, List[str]], trunc_frac: float = 1.0) -> CoherentNoiseResult:
+    erx_ids_sorted = np.array(sorted(groups.keys()), dtype=int)
 
     coh_true, inc_true, coh_corr, inc_corr = [], [], [], []
-    for cols in blocks:
-        true_2d = true_df.iloc[:, cols].to_numpy()
-        corr_2d = res_df.iloc[:,  cols].to_numpy()
+    for erx in erx_ids_sorted:
+        cols = groups[erx]
+        ncols = len(cols)
+
+        true_2d = true_df.loc[:, cols].to_numpy()
+        corr_2d = res_df.loc[:,  cols].to_numpy()
+
         dir_true, alt_true = dir_alt_sums_per_erx(true_2d)
         dir_corr, alt_corr = dir_alt_sums_per_erx(corr_2d)
 
-        c_t, i_t = coh_inc_from_sums(direct=dir_true, alternating=alt_true, nch_per_erx=nch_per_erx, trunc_frac=trunc_frac)
-        c_c, i_c = coh_inc_from_sums(direct=dir_corr, alternating=alt_corr, nch_per_erx=nch_per_erx, trunc_frac=trunc_frac)
-        coh_true.append(c_t)
-        inc_true.append(i_t)
-        coh_corr.append(c_c)
-        inc_corr.append(i_c)
+        c_t, i_t = coh_inc_from_sums(direct=dir_true, alternating=alt_true,
+                                     nch_per_erx=ncols, trunc_frac=trunc_frac)
+        c_c, i_c = coh_inc_from_sums(direct=dir_corr, alternating=alt_corr,
+                                     nch_per_erx=ncols, trunc_frac=trunc_frac)
 
-    coh_true = np.asarray(coh_true)
-    inc_true = np.asarray(inc_true)
-    coh_corr = np.asarray(coh_corr)
-    inc_corr = np.asarray(inc_corr)
+        coh_true.append(c_t); inc_true.append(i_t)
+        coh_corr.append(c_c); inc_corr.append(i_c)
+
+    coh_true = np.asarray(coh_true); inc_true = np.asarray(inc_true)
+    coh_corr = np.asarray(coh_corr); inc_corr = np.asarray(inc_corr)
 
     with np.errstate(divide="ignore", invalid="ignore"):
         inc_ratio = np.nan_to_num(inc_corr / inc_true, nan=0.0)
@@ -669,13 +838,13 @@ def compute_coherent_noise_for_method(method: str, true_df: pd.DataFrame, res_df
         coh_over_inc_true = np.nan_to_num(coh_true / inc_true, nan=0.0)
         coh_over_inc_corr = np.nan_to_num(coh_corr / inc_corr, nan=0.0)
 
-    return CoherentNoiseResult(method=method, trunc_frac=trunc_frac, erx_idx=np.arange(nerx), coh_true=coh_true, inc_true=inc_true, coh_corr=coh_corr, inc_corr=inc_corr, coh_ratio=coh_ratio, inc_ratio=inc_ratio, coh_over_inc_true=coh_over_inc_true, coh_over_inc_corr=coh_over_inc_corr)
+    return CoherentNoiseResult(method=method, trunc_frac=trunc_frac, erx_idx=erx_ids_sorted, coh_true=coh_true, inc_true=inc_true, coh_corr=coh_corr, inc_corr=inc_corr, coh_ratio=coh_ratio, inc_ratio=inc_ratio, coh_over_inc_true=coh_over_inc_true, coh_over_inc_corr=coh_over_inc_corr)
 
-def compute_coherent_noise_all_methods(cfg: EvalConfig, variants: Dict[str, pd.DataFrame], residuals: Dict[str, pd.DataFrame], trunc_frac: float = 1.0) -> Dict[str, CoherentNoiseResult]:
+def compute_coherent_noise_all_methods(cfg: EvalConfig, variants: Dict[str, pd.DataFrame], residuals: Dict[str, pd.DataFrame], groups: Dict[int, List[str]], trunc_frac: float = 1.0) -> Dict[str, CoherentNoiseResult]:
     true_df = variants["true"]
     out: Dict[str, CoherentNoiseResult] = {}
     for method, res_df in residuals.items():
-        out[method] = compute_coherent_noise_for_method(method=method, true_df=true_df, res_df=res_df, nch_per_erx=cfg.nch_per_erx, nerx=cfg.nerx, trunc_frac=trunc_frac)
+        out[method] = compute_coherent_noise_for_method(method=method, true_df=true_df, res_df=res_df, groups=groups, trunc_frac=trunc_frac)
     return out
 
 
@@ -720,17 +889,49 @@ def plot_coherent_noise_from_result(split_name: str, result: CoherentNoiseResult
     fig.savefig(os.path.join(plot_dir, outname), bbox_inches="tight", pad_inches=0.05)
     plt.close()
 
+def parse_channel_number(col: str) -> int:
+    # robust parse: accepts 'ch_005' or '005' just in case
+    s = col
+    if s.startswith("ch_"):
+        s = s[3:]
+    else:
+        raise ValueError("undefined channel name not starting with 'ch_'")
+    return int(s)
 
+def infer_erx_groups_from_columns(df: pd.DataFrame, nch_per_erx: int) -> Dict[int, List[str]]:
+    """
+    Map each present channel column to an ERx id = channel_index // nch_per_erx,
+    and return {erx_id: [column names]} keeping only groups with >= 2 channels.
+    """
 
-def compute_coherent_noise_all_methods_multi(cfg: EvalConfig, variants: Dict[str, pd.DataFrame], residuals: Dict[str, pd.DataFrame], trunc_fracs: Tuple[float, ...]) -> Dict[str, List[CoherentNoiseResult]]:
+    ch_nums = np.array([parse_channel_number(c) for c in df.columns], dtype=int)
+    erx_ids = ch_nums // nch_per_erx
+
+    groups: Dict[int, List[str]] = {}
+    for erx in np.unique(erx_ids):
+        cols = [col for col, e in zip(df.columns, erx_ids) if e == erx]
+        if len(cols) >= 2:
+            groups[erx] = cols
+    return dict(sorted(groups.items()))  # sort by erx id for stable plotting order
+
+def compute_coherent_noise_all_methods_multi(cfg: EvalConfig, variants: Dict[str, pd.DataFrame], residuals: Dict[str, pd.DataFrame], trunc_fracs: Tuple[float, ...], groups: Dict[int, List[str]]) -> Dict[str, List[CoherentNoiseResult]]:
     out: Dict[str, List[CoherentNoiseResult]] = {}
     for method in residuals.keys():
-        out[method] = [compute_coherent_noise_for_method(method=method, true_df=variants["true"], res_df=residuals[method], nch_per_erx=cfg.nch_per_erx, nerx=cfg.nerx, trunc_frac=f) for f in trunc_fracs]
+        out[method] = [compute_coherent_noise_for_method(method=method, true_df=variants["true"], res_df=residuals[method], groups=groups, trunc_frac=f) for f in trunc_fracs]
     return out
 
-def compute_and_plot_coherent_noise(split_name: str, cfg: EvalConfig, variants: Dict[str, pd.DataFrame], residuals: Dict[str, pd.DataFrame], plot_dir: str, trunc_fracs: Tuple[float, ...] = (1.0,)) -> Dict[str, List[CoherentNoiseResult]]:
+def compute_and_plot_coherent_noise(split_name: str, cfg: EvalConfig, variants: Dict[str, pd.DataFrame], residuals: Dict[str, pd.DataFrame], plot_dir: str, trunc_fracs: Tuple[float, ...] = (1.0,)) -> None:
+    
+    groups = infer_erx_groups_from_columns(variants["true"], cfg.nch_per_erx)
+    if not groups:
+        print(f"[coh/inc] No ERx with >=2 channels (nch_per_erx={cfg.nch_per_erx}). Skipping.")
+        return
+
+    # if variants["true"].shape[1] != cfg.nch_per_erx * cfg.nerx:
+    #     print(f"Number of channels ({cfg.nch_per_erx} * {cfg.nerx}) does not equal number of channels in targets ({variants['true'].shape[1]}). Not making (in)coherent noise plots.")
+    #     return
     os.makedirs(plot_dir, exist_ok=True)
-    results_by_method = compute_coherent_noise_all_methods_multi(cfg=cfg, variants=variants, residuals=residuals, trunc_fracs=trunc_fracs)
+    results_by_method = compute_coherent_noise_all_methods_multi(cfg=cfg, variants=variants, residuals=residuals, trunc_fracs=trunc_fracs, groups=groups)
     for method, results_list in results_by_method.items():
         for res in results_list:
             subdir = os.path.join(plot_dir, method)
@@ -747,7 +948,7 @@ class EigDecompResult:
 
 def compute_eigendecomp_for_method(method: str, df: pd.DataFrame) -> EigDecompResult:
     # channel covariance across events (N x N); reuse our NaN-safe compute_cov
-    cov = compute_cov(df)
+    cov = compute_cov(df_i=df, df_j=df)
     # symmetric -> eigh; sort descending
     vals, vecs = np.linalg.eigh(cov.to_numpy())
     order = np.argsort(vals)[::-1]
@@ -838,17 +1039,26 @@ def plot_all_eigenvectors(cfg: EvalConfig, split_name: str, variants: Dict[str, 
     os.makedirs(plotdir_1d, exist_ok=True)
     os.makedirs(plotdir_2d, exist_ok=True)
 
+    make_2d = variants["true"].shape[1] == cfg.nch_per_erx * cfg.nerx
+
     for method, variant in variants.items():
         eig = compute_eigendecomp_for_method(method=method, df=variant)
         plot_topk_eigenvectors_1d(eig=eig, output_filename=os.path.join(plotdir_1d, f"eigenvectors_{eig.method}_{split_name}.pdf"), k=k, nch_per_erx=cfg.nch_per_erx, nerx=cfg.nerx)
+        if not make_2d:
+            print(f"Number of channels ({cfg.nch_per_erx} * {cfg.nerx}) does not equal number of channels in targets ({variants['true'].shape[1]}). Not making 2d eigenvector plots.")
+            continue
         plot_topk_eigenvectors_2d(eig=eig, output_filename=os.path.join(plotdir_2d, f"eigenvectors_2d_{eig.method}_{split_name}.pdf"), k=k, nch_per_erx=cfg.nch_per_erx, nerx=cfg.nerx)
     for method, variant in residuals.items():
         eig = compute_eigendecomp_for_method(method=method, df=variant)
         plot_topk_eigenvectors_1d(eig=eig, output_filename=os.path.join(plotdir_1d, f"eigenvectors_residuals_{eig.method}_{split_name}.pdf"), k=k, nch_per_erx=cfg.nch_per_erx, nerx=cfg.nerx)
+        if not make_2d:
+            print(f"Number of channels ({cfg.nch_per_erx} * {cfg.nerx}) does not equal number of channels in targets ({variants['true'].shape[1]}). Not making 2d eigenvector plots.")
+            continue
         plot_topk_eigenvectors_2d(eig=eig, output_filename=os.path.join(plotdir_2d, f"eigenvectors_residuals_2d_{eig.method}_{split_name}.pdf"), k=k, nch_per_erx=cfg.nch_per_erx, nerx=cfg.nerx)
 
 
 def compute_projections_onto_topk(df: pd.DataFrame, eig: EigDecompResult, k: int) -> List[np.ndarray]:
+    k = int(min(k, eig.eigenvectors.shape[1]))
     # residual matrix R: E x N ; columns align with eigenvectors columns
     R = df.to_numpy()  # E x N
     V = eig.eigenvectors[:, :k]  # N x k  (orthonormal from eigh)
@@ -857,6 +1067,7 @@ def compute_projections_onto_topk(df: pd.DataFrame, eig: EigDecompResult, k: int
     return [P[:, i] for i in range(k)]
 
 def plot_projection_hists(df: pd.DataFrame, eig: EigDecompResult, k: int, output_filename: str) -> None:
+    k = int(min(k, eig.eigenvectors.shape[1]))
     projections = compute_projections_onto_topk(df=df, eig=eig, k=k)
 
     bins = np.histogram_bin_edges(np.concatenate(projections), bins=25)

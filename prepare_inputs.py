@@ -1,3 +1,5 @@
+#! /eos/user/a/areimers/torch-env/bin/python
+
 import warnings
 warnings.filterwarnings("ignore", message="The value of the smallest subnormal.*")
 import uproot
@@ -9,6 +11,7 @@ import numpy as np
 from copy import copy
 import os
 from sklearn.model_selection import train_test_split
+import json
 
 import utils
 
@@ -16,9 +19,20 @@ import utils
 def main():
 
     # Names of the modules for which we want to produce inputs
-    modulenames = ["ML_F3W_WXIH0190", "ML_F3W_WXIH0191", "ML_F3W_WXIH0192", "ML_F3W_WXIH0193", "ML_F3W_WXIH0194", "ML_F3W_WXIH0196", "ML_F3W_WXIH0197", "ML_F3W_WXIH0198"]
+    # modulenames = ["ML_F3W_WXIH0190", "ML_F3W_WXIH0191", "ML_F3W_WXIH0192", "ML_F3W_WXIH0193", "ML_F3W_WXIH0194", "ML_F3W_WXIH0196", "ML_F3W_WXIH0197", "ML_F3W_WXIH0198"]
+    modulenames = ["ML_F3W_WXIH0190"]
 
+    inputtag = ""
+    # inputtag = "_nochadc"
+    # inputtag = "_1cm1ch"
+    # inputtag = "_1cm2ch"
 
+    nchannels = range(222)
+    # nchannels = range(1)
+    # nchannels = range(2)
+
+    ncmchannels = range(12)
+    # ncmchannels = range(1)
 
 
 
@@ -26,8 +40,8 @@ def main():
 
     for modulename in modulenames:
         # Define output folders
-        plotfolder = f"plots/inputs/{modulename}"
-        inputfolder = f"/eos/user/{os.getenv('USER')[0]}/{os.getenv('USER')}/hgcal/dnn_inputs/{modulename}"
+        plotfolder = f"plots/inputs{inputtag}/{modulename}"
+        inputfolder = f"/eos/user/{os.getenv('USER')[0]}/{os.getenv('USER')}/hgcal/dnn_inputs{inputtag}/{modulename}"
         os.makedirs(name=plotfolder, exist_ok=True)
         os.makedirs(name=inputfolder, exist_ok=True)
 
@@ -38,15 +52,15 @@ def main():
     
         # Load tree into df
         df = tree.arrays(library="pd")
-        for idx_erx in range(12):
+        for idx_erx in ncmchannels:
             df.loc[df["nerx"] <= idx_erx, f"cm_erx{idx_erx:02}"] = 0
     
         # Define input variables, everything we need from the ROOT files
-        input_cols = [f'cm_erx{idxerx:02}' for idxerx in range(12)] + ['erx', 'chadc', 'nchadc']
+        input_cols = [f'cm_erx{idxerx:02}' for idxerx in ncmchannels] + ['erx', 'chadc', 'nchadc']
     
         # Expand to flat arrays
-        inputs, targets, colnames = expand_inputs_and_targets(df, input_cols=input_cols, selected_indices=range(222))
-    
+        inputs, targets, colnames = expand_inputs_and_targets(df, input_cols=input_cols, selected_indices=nchannels)
+
         # Preprocess flat arrays (center them and save means)
         inputs, targets, inputs_mean, targets_mean, chadc, eventid = preprocess_inputs_targets(inputs, targets, foldername=inputfolder)
         for inputname in colnames:
@@ -62,7 +76,16 @@ def main():
             shuffle=True
         )
 
+        n_chunks_ordered = len(all_indices) / len(nchannels)
+        if int(n_chunks_ordered) != n_chunks_ordered:
+            raise ValueError(f"number of indices ({len(all_indices)}) not divisable by number of channels ({len(nchannels)})... how?")
+        n_keep = int(round(n_chunks_ordered * 0.8))
+        cutoff = n_keep * len(nchannels)
+        train_indices_ordered = all_indices[:cutoff]
+        val_indices_ordered   = all_indices[cutoff:]
+
         # Drop columns that should not be used as inputs (but were loaded because needed for something else)
+        # inputs = inputs.drop(columns=["event_id", "chadc"])
         inputs = inputs.drop(columns=["event_id"])
     
         # Convert inputs and targets to numpy
@@ -74,6 +97,12 @@ def main():
         X_val = X[val_indices]
         y_train = y[train_indices]
         y_val = y[val_indices]
+    
+        # Apply ordered train/val split
+        X_train_ordered = X[train_indices_ordered]
+        X_val_ordered = X[val_indices_ordered]
+        y_train_ordered = y[train_indices_ordered]
+        y_val_ordered = y[val_indices_ordered]
 
         # Write to files
         np.save(f"{inputfolder}/inputs_train.npy", X_train)
@@ -82,12 +111,25 @@ def main():
         np.save(f"{inputfolder}/targets_val.npy", y_val)
         np.save(f"{inputfolder}/indices_train.npy", train_indices)
         np.save(f"{inputfolder}/indices_val.npy", val_indices)
+
+        np.save(f"{inputfolder}/inputs_train_ordered.npy", X_train_ordered)
+        np.save(f"{inputfolder}/inputs_val_ordered.npy", X_val_ordered)
+        np.save(f"{inputfolder}/targets_train_ordered.npy", y_train_ordered)
+        np.save(f"{inputfolder}/targets_val_ordered.npy", y_val_ordered)
+        np.save(f"{inputfolder}/indices_train_ordered.npy", train_indices_ordered)
+        np.save(f"{inputfolder}/indices_val_ordered.npy", val_indices_ordered)
+
         np.save(f"{inputfolder}/inputs.npy", inputs.to_numpy())
         np.save(f"{inputfolder}/targets.npy", targets.to_numpy())
         np.save(f"{inputfolder}/inputs_mean.npy", inputs_mean)
         np.save(f"{inputfolder}/targets_mean.npy", targets_mean)
         np.save(f"{inputfolder}/chadc.npy", chadc)
         np.save(f"{inputfolder}/eventid.npy", eventid)
+
+
+        with open(f"{inputfolder}/colnames.json", "w") as f:
+            json.dump(list(inputs), f)
+
         print(f"--> Wrote DNN inputs/targets to {inputfolder}")
 
 

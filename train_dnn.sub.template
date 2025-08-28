@@ -1,0 +1,25 @@
+#------------ train_dnn.sub.template ------------
+Universe   = vanilla
+
+# Use bash so we can source the virtual environment
+Executable = {WRAPPER}
+
+# Environment
+environment = "X509_USER_PROXY={VOMS}"
+
+# GPU resources (request at least 1 GPU)
+request_gpus = {GPUS}
+
+# Logging
+Log        = {LOGDIR}/{NAME}.log
+Output     = {LOGDIR}/{NAME}.out
+Error      = {LOGDIR}/{NAME}.err
+
+# Resource requests
+RequestMemory  = {MEMGB} GB
+RequestCpus    = 1
++JobFlavour    = "{JOBFLAVOR}"
+
+# Submit one job per Queue
+Queue 1
+#-----------------------------------------------

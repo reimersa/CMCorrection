@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+
+# Activate the virtual environment
+if [[ -f "{VENV}/bin/activate" ]]; then
+    source "{VENV}/bin/activate"
+    echo "Activated virtual environment at {VENV}"
+else
+    echo "ERROR: Virtual environment not found at {VENV}" >&2
+    exit 1
+fi
+
+python {EXE} {ARGS}
+exit 0

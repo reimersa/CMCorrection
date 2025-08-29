@@ -51,21 +51,21 @@ def main():
     # Analytic inferencer
     analytic_inferencer = AnalyticInferencer(drop_constant_cm=True)    
     
-    # for split_name in ["combined"]:
-    #     s = io.get_split(split_name)
-    #     (variants, variants_with_cms) = build_variants(split_predict=s, split_correction=s, cfg=cfg, model_folder=model_dir, dnn_inferencer=dnn_inferencer, analytic_inferencer=analytic_inferencer, k_list=(0, 1, 3, 5, 10))
-    #     (residuals, residuals_with_cms) = make_residuals(variants, cm_df=s.cm_df)  
+    for split_name in ["combined"]:
+        s = io.get_split(split_name)
+        (variants, variants_with_cms) = build_variants(split_predict=s, split_correction=s, cfg=cfg, model_folder=model_dir, dnn_inferencer=dnn_inferencer, analytic_inferencer=analytic_inferencer, k_list=(0, 1, 3, 5, 10))
+        (residuals, residuals_with_cms) = make_residuals(variants, cm_df=s.cm_df)  
         
-    #     plot_split_diagnostics(split_name=split_name, cfg=cfg, model_folder=model_dir, cm_df=s.cm_df, variants=variants, variants_with_cms=variants_with_cms, residuals=residuals, residuals_with_cms=residuals_with_cms)
+        plot_split_diagnostics(split_name=split_name, cfg=cfg, model_folder=model_dir, cm_df=s.cm_df, variants=variants, variants_with_cms=variants_with_cms, residuals=residuals, residuals_with_cms=residuals_with_cms)
 
-    predict_with_correction = [("val_ordered", "train_ordered")]
-    for split_name_predict, split_name_correction in predict_with_correction:
-        s_predict = io.get_split(split_name_predict)
-        s_correction = io.get_split(split_name_correction)
-        (variants, variants_with_cms) = build_variants(split_predict=s_predict, split_correction=s_correction, cfg=cfg, model_folder=model_dir, dnn_inferencer=dnn_inferencer, analytic_inferencer=analytic_inferencer, k_list=(0, 1, 3, 5, 10))
-        (residuals, residuals_with_cms) = make_residuals(variants, cm_df=s_predict.cm_df)  
+    # predict_with_correction = [("val_ordered", "train_ordered")]
+    # for split_name_predict, split_name_correction in predict_with_correction:
+    #     s_predict = io.get_split(split_name_predict)
+    #     s_correction = io.get_split(split_name_correction)
+    #     (variants, variants_with_cms) = build_variants(split_predict=s_predict, split_correction=s_correction, cfg=cfg, model_folder=model_dir, dnn_inferencer=dnn_inferencer, analytic_inferencer=analytic_inferencer, k_list=(0, 1, 3, 5, 10))
+    #     (residuals, residuals_with_cms) = make_residuals(variants, cm_df=s_predict.cm_df)  
         
-        plot_split_diagnostics(split_name=f"{split_name_predict}_from_{split_name_correction}", cfg=cfg, model_folder=model_dir, cm_df=s_predict.cm_df, variants=variants, variants_with_cms=variants_with_cms, residuals=residuals, residuals_with_cms=residuals_with_cms)
+    #     plot_split_diagnostics(split_name=f"{split_name_predict}_from_{split_name_correction}", cfg=cfg, model_folder=model_dir, cm_df=s_predict.cm_df, variants=variants, variants_with_cms=variants_with_cms, residuals=residuals, residuals_with_cms=residuals_with_cms)
         
 
 def plot_split_diagnostics(split_name: str, cfg: EvalConfig, model_folder: str, cm_df: pd.DataFrame, variants: Dict[str, pd.DataFrame], variants_with_cms: Dict[str, pd.DataFrame], residuals: Dict[str, pd.DataFrame], residuals_with_cms: Dict[str, pd.DataFrame]):
@@ -85,7 +85,7 @@ def plot_split_diagnostics(split_name: str, cfg: EvalConfig, model_folder: str, 
     plot_vs_each_cm(split_name=split_name, cm_df=cm_df, variants=variants, residuals=residuals, plot_dir=os.path.join(plot_dir, "per_channel_2d_vs_cm"))
 
     # # channel vs. channel
-    # plot_channeli_vs_channelj(split_name=split_name, ch_i=1, ch_j=0, variants=variants, residuals=residuals, plot_dir=os.path.join(plot_dir, "per_channel_2d_vs_channel"))
+    plot_channeli_vs_channelj(split_name=split_name, ch_i=1, ch_j=0, variants=variants, residuals=residuals, plot_dir=os.path.join(plot_dir, "per_channel_2d_vs_channel"))
 
     # # coh/inc noise ratios
     compute_and_plot_coherent_noise(split_name=split_name, cfg=cfg, variants=variants, residuals=residuals, plot_dir=os.path.join(plot_dir, "coherent_noise"), trunc_fracs=(1.0, 0.95, 0.90))
@@ -95,7 +95,7 @@ def plot_split_diagnostics(split_name: str, cfg: EvalConfig, model_folder: str, 
     plot_all_eigenvalues(split_name=split_name, variants=variants, residuals=residuals, plot_dir=os.path.join(plot_dir, "eigenvalues"))
     plot_all_eigenvectors(cfg=cfg, split_name=split_name, variants=variants, residuals=residuals, k=4, plot_dir=os.path.join(plot_dir, "eigenvectors"))
     plot_all_projection_hists(split_name=split_name, variants=variants, residuals=residuals, k=4, plot_dir=os.path.join(plot_dir, "eigenprojections"))
-    # plot_loss(model_folder=model_folder, plot_dir=plot_dir)
+    plot_loss(model_folder=model_folder, plot_dir=plot_dir)
 
 
 # -----------------------------

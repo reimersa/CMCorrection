@@ -4,12 +4,14 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from typing import List, Optional, Dict, Tuple
-import numpy as np
-import pandas as pd
+import numpy as np # type: ignore
+import pandas as pd # type: ignore
 import json
-import torch
-import torch.nn as nn
-import matplotlib.pyplot as plt
+import torch # type: ignore
+import torch.nn as nn # type: ignore
+import matplotlib.pyplot as plt # type: ignore
+from tqdm import tqdm # type: ignore
+import dcor  # type: ignore
 
 
 import models
@@ -32,11 +34,20 @@ def main():
         modeltag="",
 
         inputfoldertag="", 
+        # inputfoldertag="_normalizedarea", 
+        # inputfoldertag="_normalizedarea_nodisconnected", 
         # inputfoldertag="_1cm1ch", 
         # inputfoldertag="_1cm2ch", 
+        # inputfoldertag="_12cm1ch", 
+        # inputfoldertag="_2cm1ch", 
+        # inputfoldertag="_12cm10ch", 
 
         ncmchannels=12,
+        # ncmchannels=2,
         # ncmchannels=1,
+
+        nch_per_erx=37,
+        # nch_per_erx=33,
     )
 
     # load data
@@ -47,28 +58,30 @@ def main():
     dnn_model = cfg.make_dnn_model(input_dim=io.get_split("train").inputs_flat.shape[1])
     model_dir = cfg.model_folder(model=dnn_model)
     weights_path = cfg.model_weights_path(model_folder=model_dir)
+
+    # Inferencers
     dnn_inferencer = DNNInferencer(model=dnn_model, weights_path=weights_path, dtype=cfg.dnn_dtype, batch_size=cfg.dnn_batch_size)
-    # Analytic inferencer
-    analytic_inferencer = AnalyticInferencer(drop_constant_cm=True)    
+    analytic_inferencer = AnalyticInferencer(drop_constant_cm=True) 
+    manual_inferencer = ManualInferencer()
     
     for split_name in ["combined"]:
         s = io.get_split(split_name)
-        (variants, variants_with_cms) = build_variants(split_predict=s, split_correction=s, cfg=cfg, model_folder=model_dir, dnn_inferencer=dnn_inferencer, analytic_inferencer=analytic_inferencer, k_list=(0, 1, 3, 5, 10))
+        (variants, variants_with_cms) = build_variants(split_predict=s, split_correction=s, cfg=cfg, model_folder=model_dir, dnn_inferencer=dnn_inferencer, analytic_inferencer=analytic_inferencer, k_list=(0, 1, 3, 5), manual_inferencer=manual_inferencer)
         (residuals, residuals_with_cms) = make_residuals(variants, cm_df=s.cm_df)  
         
-        plot_split_diagnostics(split_name=split_name, cfg=cfg, model_folder=model_dir, cm_df=s.cm_df, variants=variants, variants_with_cms=variants_with_cms, residuals=residuals, residuals_with_cms=residuals_with_cms)
+        plot_split_diagnostics(split_name=split_name, cfg=cfg, model_folder=model_dir, cm_df=s.cm_df, cm_eigendirs_df=s.cm_eigendirections_df, variants=variants, variants_with_cms=variants_with_cms, residuals=residuals, residuals_with_cms=residuals_with_cms)
 
     # predict_with_correction = [("val_ordered", "train_ordered")]
     # for split_name_predict, split_name_correction in predict_with_correction:
     #     s_predict = io.get_split(split_name_predict)
     #     s_correction = io.get_split(split_name_correction)
-    #     (variants, variants_with_cms) = build_variants(split_predict=s_predict, split_correction=s_correction, cfg=cfg, model_folder=model_dir, dnn_inferencer=dnn_inferencer, analytic_inferencer=analytic_inferencer, k_list=(0, 1, 3, 5, 10))
+    #     (variants, variants_with_cms) = build_variants(split_predict=s_predict, split_correction=s_correction, cfg=cfg, model_folder=model_dir, dnn_inferencer=dnn_inferencer, analytic_inferencer=analytic_inferencer, k_list=(0, 1, 3, 5))
     #     (residuals, residuals_with_cms) = make_residuals(variants, cm_df=s_predict.cm_df)  
         
     #     plot_split_diagnostics(split_name=f"{split_name_predict}_from_{split_name_correction}", cfg=cfg, model_folder=model_dir, cm_df=s_predict.cm_df, variants=variants, variants_with_cms=variants_with_cms, residuals=residuals, residuals_with_cms=residuals_with_cms)
         
 
-def plot_split_diagnostics(split_name: str, cfg: EvalConfig, model_folder: str, cm_df: pd.DataFrame, variants: Dict[str, pd.DataFrame], variants_with_cms: Dict[str, pd.DataFrame], residuals: Dict[str, pd.DataFrame], residuals_with_cms: Dict[str, pd.DataFrame]):
+def plot_split_diagnostics(split_name: str, cfg: EvalConfig, model_folder: str, cm_df: pd.DataFrame, cm_eigendirs_df: pd.DataFrame, variants: Dict[str, pd.DataFrame], variants_with_cms: Dict[str, pd.DataFrame], residuals: Dict[str, pd.DataFrame], residuals_with_cms: Dict[str, pd.DataFrame]):
     # build plot folder consistent with your old layout
     train_tag = "_".join(cfg.modulenames_used_for_training)
     model_string = os.path.basename(model_folder)
@@ -76,26 +89,50 @@ def plot_split_diagnostics(split_name: str, cfg: EvalConfig, model_folder: str, 
     os.makedirs(plot_dir, exist_ok=True)
     
 
-    # Cov and Corr plots for all variants and residuals
-    plot_cov_corr(split_name=split_name, cfg=cfg, variants=variants_with_cms, residuals=residuals_with_cms, plot_dir=os.path.join(plot_dir, "covcorr"))
 
-    plot_per_channel_diagnostics(split_name=split_name, variants=variants, residuals=residuals, plot_dir=os.path.join(plot_dir, "per_channel"))
+    # # Cov and Corr plots for all variants and residuals
+    # plot_cov_corr(split_name=split_name, cfg=cfg, variants=variants_with_cms, residuals=residuals_with_cms, plot_dir=os.path.join(plot_dir, "covcorr"))
+    # plot_dist_corr(split_name=split_name, cfg=cfg, variants=variants_with_cms, residuals=residuals_with_cms, cm_df=cm_df, plot_dir=os.path.join(plot_dir, "distcor"))
+    # plot_delta_lin_dist_corr(split_name=split_name, cfg=cfg, variants=variants_with_cms, residuals=residuals_with_cms, cm_df=cm_df, plot_dir=os.path.join(plot_dir, "delta_lin_dist_cor"))
 
-    # # # 2d plots with marginals
-    plot_vs_each_cm(split_name=split_name, cm_df=cm_df, variants=variants, residuals=residuals, plot_dir=os.path.join(plot_dir, "per_channel_2d_vs_cm"))
+    # # Per-channel 1d histograms and diagnostics
+    # plot_per_channel_1dhistograms(channels=[0], split_name=split_name, variants=variants, residuals=residuals, plot_dir=os.path.join(plot_dir, "per_channel"))
+    # plot_per_channel_diagnostics(split_name=split_name, variants=variants, residuals=residuals, plot_dir=os.path.join(plot_dir, "per_channel"))
+
+    # # 2d plots with marginals
+    # plot_vs_each_cm(split_name=split_name, cm_df=cm_df, variants=variants, residuals=residuals, channel_number="all", plot_dir=os.path.join(plot_dir, "per_channel_2d_vs_cm"))
+    # plot_vs_each_cm(split_name=split_name, cm_df=cm_df, variants=variants, residuals=residuals, channel_number=0, plot_dir=os.path.join(plot_dir, "per_channel_2d_vs_cm", "channel000"))
+    # plot_vs_each_cm(split_name=split_name, cm_df=cm_df, variants=variants, residuals=residuals, channel_number=1, plot_dir=os.path.join(plot_dir, "per_channel_2d_vs_cm", "channel001"))
+    # plot_vs_each_cm(split_name=split_name, cm_df=cm_df, variants=variants, residuals=residuals, channel_number=2, plot_dir=os.path.join(plot_dir, "per_channel_2d_vs_cm", "channel002"))
+    # plot_vs_each_cm(split_name=split_name, cm_df=cm_df, variants=variants, residuals=residuals, channel_number=86, plot_dir=os.path.join(plot_dir, "per_channel_2d_vs_cm", "channel086"))
+
+    # 2d plots vs. CM eigendirections with marginals
+    # plot_vs_each_cm(split_name=split_name, cm_df=cm_eigendirs_df, variants=variants, residuals=residuals, channel_number="all", plot_dir=os.path.join(plot_dir, "per_channel_2d_vs_cm_eigendirs"))
+    # plot_vs_each_cm(split_name=split_name, cm_df=cm_eigendirs_df, variants=variants, residuals=residuals, channel_number=0, plot_dir=os.path.join(plot_dir, "per_channel_2d_vs_cm_eigendirs", "channel000"))
+    # plot_vs_each_cm(split_name=split_name, cm_df=cm_eigendirs_df, variants=variants, residuals=residuals, channel_number=86, plot_dir=os.path.join(plot_dir, "per_channel_2d_vs_cm_eigendirs", "channel086"))
+    # raise ValueError("stop")
 
     # # channel vs. channel
-    plot_channeli_vs_channelj(split_name=split_name, ch_i=1, ch_j=0, variants=variants, residuals=residuals, plot_dir=os.path.join(plot_dir, "per_channel_2d_vs_channel"))
+    # plot_channeli_vs_channelj(split_name=split_name, ch_i=1, ch_j=0, variants=variants, residuals=residuals, plot_dir=os.path.join(plot_dir, "per_channel_2d_vs_channel"))
 
-    # # coh/inc noise ratios
-    compute_and_plot_coherent_noise(split_name=split_name, cfg=cfg, variants=variants, residuals=residuals, plot_dir=os.path.join(plot_dir, "coherent_noise"), trunc_fracs=(1.0, 0.95, 0.90))
+    # # coherent + incoherent noise ratios
+    # compute_and_plot_coherent_noise(split_name=split_name, cfg=cfg, variants=variants, residuals=residuals, plot_dir=os.path.join(plot_dir, "coherent_noise"), trunc_fracs=(1.0, 0.95, 0.90))
 
+    # # Eigendecompositions and projections for non-CM channels
+    # plot_all_eigenvalues(split_name=split_name, variants=variants, residuals=residuals, plot_dir=os.path.join(plot_dir, "eigenvalues"))
+    # plot_all_eigenvectors(cfg=cfg, split_name=split_name, variants=variants, residuals=residuals, k=4, plot_dir=os.path.join(plot_dir, "eigenvectors"))
+    # plot_all_projection_hists(split_name=split_name, variants=variants, residuals=residuals, cm_df=cm_df, k=3, plot_dir=os.path.join(plot_dir, "eigenprojections"))
 
-    # # Eigen decompositions
-    plot_all_eigenvalues(split_name=split_name, variants=variants, residuals=residuals, plot_dir=os.path.join(plot_dir, "eigenvalues"))
-    plot_all_eigenvectors(cfg=cfg, split_name=split_name, variants=variants, residuals=residuals, k=4, plot_dir=os.path.join(plot_dir, "eigenvectors"))
-    plot_all_projection_hists(split_name=split_name, variants=variants, residuals=residuals, k=4, plot_dir=os.path.join(plot_dir, "eigenprojections"))
-    plot_loss(model_folder=model_folder, plot_dir=plot_dir)
+    # # Eigendecompositions and projections for non-CM + CM channels
+    # plot_all_eigenvalues(split_name=split_name, variants=variants_with_cms, residuals=residuals_with_cms, plot_dir=os.path.join(plot_dir, "eigenvalues_cmincl"))
+    # plot_all_eigenvectors(cfg=cfg, split_name=split_name, variants=variants_with_cms, residuals=residuals_with_cms, k=4, plot_dir=os.path.join(plot_dir, "eigenvectors_cmincl"))
+    # plot_all_projection_hists(split_name=split_name, variants=variants_with_cms, residuals=residuals_with_cms, cm_df=cm_df, k=1, plot_dir=os.path.join(plot_dir, "eigenprojections_cmincl"))
+
+    # # Eigendecompositions and projections only for CM channels
+    # plot_all_projection_hists(split_name=split_name, variants=variants, residuals=residuals, cm_df=cm_eigendirs_df, k=3, plot_dir=os.path.join(plot_dir, "eigenprojections_cmeigdirs"))
+
+    # # Loss
+    # plot_loss(model_folder=model_folder, plot_dir=plot_dir)
 
 
 # -----------------------------
@@ -178,6 +215,8 @@ class SplitData:
     measurements_with_cms_df: pd.DataFrame
     inputs_df: pd.DataFrame
     cm_df: pd.DataFrame
+    cm_eigendirections_df: pd.DataFrame
+    measurements_with_cm_eigendirections_df: pd.DataFrame
 
     # metadata
     event_ids: np.ndarray
@@ -229,23 +268,23 @@ class DataIO:
         self.combined = self._build_split(name="combined", targets_flat=targets_combined, inputs_flat=inputs_combined, channels_flat=channels_combined, eventid_flat=eventid_combined, colnames_inputs=colnames)
 
 
-        # load arrays
-        inputs_train_ordered = np.load(file=os.path.join(folder, "inputs_train_ordered.npy"), mmap_mode="r")
-        inputs_val_ordered   = np.load(file=os.path.join(folder, "inputs_val_ordered.npy"),   mmap_mode="r")
-        targets_train_ordered = np.load(file=os.path.join(folder, "targets_train_ordered.npy"), mmap_mode="r")
-        targets_val_ordered   = np.load(file=os.path.join(folder, "targets_val_ordered.npy"),   mmap_mode="r")
-        train_idx_ordered   = np.load(file=os.path.join(folder, "indices_train_ordered.npy"), mmap_mode="r")
-        val_idx_ordered     = np.load(file=os.path.join(folder, "indices_val_ordered.npy"),   mmap_mode="r")
+        # # load arrays
+        # inputs_train_ordered = np.load(file=os.path.join(folder, "inputs_train_ordered.npy"), mmap_mode="r")
+        # inputs_val_ordered   = np.load(file=os.path.join(folder, "inputs_val_ordered.npy"),   mmap_mode="r")
+        # targets_train_ordered = np.load(file=os.path.join(folder, "targets_train_ordered.npy"), mmap_mode="r")
+        # targets_val_ordered   = np.load(file=os.path.join(folder, "targets_val_ordered.npy"),   mmap_mode="r")
+        # train_idx_ordered   = np.load(file=os.path.join(folder, "indices_train_ordered.npy"), mmap_mode="r")
+        # val_idx_ordered     = np.load(file=os.path.join(folder, "indices_val_ordered.npy"),   mmap_mode="r")
 
-        # split indices to train/val
-        chadc_train_ordered, chadc_val_ordered       = chadc_full[train_idx_ordered],   chadc_full[val_idx_ordered]
-        eventid_train_ordered, eventid_val_ordered   = eventid_full[train_idx_ordered], eventid_full[val_idx_ordered]
+        # # split indices to train/val
+        # chadc_train_ordered, chadc_val_ordered       = chadc_full[train_idx_ordered],   chadc_full[val_idx_ordered]
+        # eventid_train_ordered, eventid_val_ordered   = eventid_full[train_idx_ordered], eventid_full[val_idx_ordered]
 
-        # build train split
-        self.train_ordered = self._build_split(name="train_ordered", targets_flat=np.asarray(a=targets_train_ordered).squeeze(), inputs_flat=np.asarray(a=inputs_train_ordered), channels_flat=np.asarray(a=chadc_train_ordered), eventid_flat=np.asarray(a=eventid_train_ordered), colnames_inputs=colnames)
+        # # build train split
+        # self.train_ordered = self._build_split(name="train_ordered", targets_flat=np.asarray(a=targets_train_ordered).squeeze(), inputs_flat=np.asarray(a=inputs_train_ordered), channels_flat=np.asarray(a=chadc_train_ordered), eventid_flat=np.asarray(a=eventid_train_ordered), colnames_inputs=colnames)
 
-        # build val split
-        self.val_ordered = self._build_split(name="val_ordered", targets_flat=np.asarray(a=targets_val_ordered).squeeze(), inputs_flat=np.asarray(a=inputs_val_ordered), channels_flat=np.asarray(a=chadc_val_ordered), eventid_flat=np.asarray(a=eventid_val_ordered), colnames_inputs=colnames)
+        # # build val split
+        # self.val_ordered = self._build_split(name="val_ordered", targets_flat=np.asarray(a=targets_val_ordered).squeeze(), inputs_flat=np.asarray(a=inputs_val_ordered), channels_flat=np.asarray(a=chadc_val_ordered), eventid_flat=np.asarray(a=eventid_val_ordered), colnames_inputs=colnames)
 
         # mark loaded
         self._loaded = True
@@ -268,8 +307,12 @@ class DataIO:
 
         # inputs + cm matrices, also sorted by eventid internally
         inputs_df, cm_df = self._build_input_and_cm_df(inputs_flat=inputs_flat, eventid_flat=eventid_flat, ncm=self.cfg.ncmchannels, colnames_inputs=colnames_inputs)
-
         meas_with_cm_df = add_cms_to_measurements_df(measurements_df=meas_df, cm_df=cm_df, drop_constant_cm=False)
+
+        cm_cov = compute_cov(df_i=cm_df, df_j=cm_df)
+        vals, vecs = compute_eig_from_cov(C=cm_cov)
+        cm_eigendirections_df = project_cm_to_eig(cm_df=cm_df, eigvecs=vecs)
+        meas_with_cm_eigdirs_df = add_cms_to_measurements_df(measurements_df=meas_df, cm_df=cm_eigendirections_df, drop_constant_cm=False)
 
         # sanity: indices must match exactly (same order)
         if not np.array_equal(meas_df.index.values, inputs_df.index.values):
@@ -278,7 +321,7 @@ class DataIO:
         n_channels = meas_df.shape[1]
         event_ids_sorted = meas_df.index.to_numpy()
 
-        return SplitData(name=name, targets_flat=targets_flat, inputs_flat=inputs_flat, channels_flat=channels_flat, eventid_flat=eventid_flat, measurements_df=meas_df, inputs_df=inputs_df, cm_df=cm_df, measurements_with_cms_df=meas_with_cm_df, event_ids=event_ids_sorted, n_channels=n_channels)
+        return SplitData(name=name, targets_flat=targets_flat, inputs_flat=inputs_flat, channels_flat=channels_flat, eventid_flat=eventid_flat, measurements_df=meas_df, inputs_df=inputs_df, cm_df=cm_df, measurements_with_cms_df=meas_with_cm_df, cm_eigendirections_df=cm_eigendirections_df, measurements_with_cm_eigendirections_df=meas_with_cm_eigdirs_df, event_ids=event_ids_sorted, n_channels=n_channels)
 
     # reshape measurements into event × channel DataFrame (rows sorted by eventid)
     @staticmethod
@@ -330,7 +373,7 @@ class DNNInferencer:
         X = np.asarray(X, dtype=self.dtype)
         preds = []
         with torch.no_grad():
-            for i in range(0, X.shape[0], self.batch_size):
+            for i in tqdm(range(0, X.shape[0], self.batch_size), desc="Batches predicted"):
                 batch = torch.from_numpy(X[i:i+self.batch_size]).to(self.device)
                 out = self.model(batch).squeeze()
                 preds.append(out.detach().cpu().numpy())
@@ -379,15 +422,7 @@ class AnalyticInferencer:
         if not keep_mask.any():
             raise RuntimeError("AnalyticInferencer: all CM columns are constant—cannot invert their covariance.")
 
-        # C = cm_df.loc[:, cm_df.columns[keep_mask]].to_numpy()
-        # M = meas_df.to_numpy()
-        # E = M.shape[0]
-
-        # Sigma_mc = (M.T @ C) / E                                                  # (N, K')
-        # Sigma_cc = (C.T @ C) / E                                                  # (K', K')
-        print("computig Sigma_mc")
         Sigma_mc = compute_cov(df_i=meas_df, df_j=cm_df.loc[:, cm_df.columns[keep_mask]])
-        print("computig Sigma_cc")
         Sigma_cc = compute_cov(df_i=cm_df.loc[:, cm_df.columns[keep_mask]], df_j=cm_df.loc[:, cm_df.columns[keep_mask]])
         W = Sigma_mc @ np.linalg.inv(Sigma_cc)                                    # (N, K')
         return W, keep_mask
@@ -421,36 +456,6 @@ class AnalyticInferencer:
             raise RuntimeError("AnalyticInferencer: channel columns changed since fit().")
         return preds
 
-    # def predict_k_complicated(self, split: SplitData, k: int) -> pd.DataFrame:
-    #     base = self.predict(split=split)
-    #     if k <= 0: return base
-
-    #     # residuals (E×N)
-    #     Rm = (split.measurements_df - base).to_numpy()
-
-    #     # channel covariance
-    #     Cr = (Rm.T @ Rm) / Rm.shape[0]
-
-    #     # eigendecomposition (descending)
-    #     vals, vecs = np.linalg.eigh(Cr)
-    #     order = np.argsort(vals)[::-1]
-    #     vals = vals[order]; vecs = vecs[:, order]
-
-    #     k = int(min(k, vecs.shape[1] - 1))
-    #     if k == 0: 
-    #         return base
-
-    #     U = vecs[:, :k]
-    #     lam = vals[:k]
-    #     R0 = Cr - (U * lam) @ U.T
-    #     V  = np.linalg.solve(R0, U)
-    #     D  = U.T @ V + np.diag(1.0 / lam)
-    #     Ahat = Rm @ V @ np.linalg.inv(D)
-        
-    #     corr = Ahat @ U.T
-    #     corrected = base + pd.DataFrame(corr, index=base.index, columns=base.columns)
-    #     return corrected
-
     def predict_k(self, split_predict: SplitData, split_correction: SplitData, k: int) -> pd.DataFrame:
 
         print(f"--> Predicting now for k={k}")
@@ -463,16 +468,10 @@ class AnalyticInferencer:
         Rm = (split_predict.measurements_df - base).to_numpy()
 
         # channel covariance
-        # Cr = (Rm.T @ Rm) / Rm.shape[0]
-        print("Computing Cr")
-        print(f"split_correction.measurements_df shape: {split_correction.measurements_df.shape}")
-        print(f"base_correction shape: {base_correction.shape}")
         Cr = compute_cov(df_i=split_correction.measurements_df - base_correction, df_j=split_correction.measurements_df - base_correction)
 
         # eigendecomposition (descending)
-        vals, vecs = np.linalg.eigh(Cr)
-        order = np.argsort(vals)[::-1]
-        vals = vals[order]; vecs = vecs[:, order]
+        vals, vecs = compute_eig_from_cov(C=Cr)
 
         k = int(min(k, vecs.shape[1] - 1))
         if k == 0:
@@ -487,6 +486,62 @@ class AnalyticInferencer:
         corrected = base + pd.DataFrame(corr, index=base.index, columns=base.columns)
         return corrected
 
+def compute_eig_from_cov(C):
+    vals, vecs = np.linalg.eigh(C)
+    order = np.argsort(vals)[::-1]
+    return(vals[order], vecs[:, order])
+
+class ManualInferencer:
+    def __init__(self):
+        self.binning = np.linspace(-200, 200, 401)
+
+
+    def digitize_series(self, s: pd.Series) -> pd.Series:
+        codes = np.digitize(s.to_numpy(), self.binning, right=True) - 1
+        return pd.Series(codes, index=s.index)
+
+    def build_lookup_table(self, split_correction: SplitData) -> Dict[str, pd.DataFrame]:
+        measurements_with_cms = split_correction.measurements_with_cms_df
+        cms = split_correction.cm_df
+
+        # n-d lookup table
+        bin_key_cols = [f"bin_{c}" for c in cms.columns]
+        bin_df = pd.concat([self.digitize_series(cms[c]).rename(f"bin_{c}") for c in cms.columns], axis=1)
+
+        # channels to average
+        ch_cols = list(split_correction.measurements_df.columns)
+        lut_nd = measurements_with_cms[ch_cols].groupby([bin_df[c] for c in bin_key_cols], observed=True).mean()
+
+        # name the MultiIndex levels so we can reuse the exact order in predict
+        lut_nd.index.set_names(bin_key_cols, inplace=True)
+        return lut_nd
+
+        
+
+    def predict(self, split_predict: SplitData, split_correction: SplitData) -> pd.DataFrame:
+
+        # n-d correction
+        lut_nd = self.build_lookup_table(split_correction=split_correction)
+
+        # make bins for ALL CM columns, in the SAME order as the LUT's MultiIndex levels
+        cm_cols_in_order = [name.replace("bin_", "") for name in lut_nd.index.names]
+        if not split_predict.cm_df.index.equals(split_predict.measurements_df.index):
+            raise ValueError("cm_df and measurements_df indices of split_predict are not aligned!")
+        
+        bins_list = [self.digitize_series(split_predict.cm_df[col]) for col in cm_cols_in_order]
+        # per-event 12-tuples of bin codes
+        keys = list(map(tuple, np.column_stack(bins_list)))
+
+        # gather per-event corrections by reindexing with our keys
+        preds = lut_nd.loc[keys]
+        # align rows to the events
+        preds.index = split_predict.measurements_df.index
+        # ensure columns match your channels
+        preds = preds.reindex(columns=split_predict.measurements_df.columns)
+        # print(preds)
+
+
+        return preds
     
 
 def add_cms_to_measurements_df(measurements_df: pd.DataFrame, cm_df: pd.DataFrame, drop_constant_cm: bool = True) -> pd.DataFrame:
@@ -501,7 +556,7 @@ def add_cms_to_measurements_df(measurements_df: pd.DataFrame, cm_df: pd.DataFram
         X = pd.concat([measurements_df, cm_df[keep]], axis=1)
     return X
 
-def build_variants(split_predict: SplitData, split_correction: SplitData, cfg: EvalConfig, model_folder: str, dnn_inferencer: Optional[DNNInferencer] = None, analytic_inferencer: Optional[AnalyticInferencer] = None, k_list: Tuple[int, ...] = (0, 1, 3)) -> tuple[Dict[str, pd.DataFrame], Dict[str, pd.DataFrame]]:
+def build_variants(split_predict: SplitData, split_correction: SplitData, cfg: EvalConfig, model_folder: str, dnn_inferencer: Optional[DNNInferencer] = None, analytic_inferencer: Optional[AnalyticInferencer] = None, k_list: Tuple[int, ...] = (0, 1, 3), manual_inferencer: Optional[ManualInferencer] = None) -> tuple[Dict[str, pd.DataFrame], Dict[str, pd.DataFrame]]:
     """
     Return a dict of aligned event x channel DataFrames for this split.
     Keys may include: 'true', 'dnn', 'analytic_k0, 'analytic_k1', 'analytic_k3', ...
@@ -512,7 +567,6 @@ def build_variants(split_predict: SplitData, split_correction: SplitData, cfg: E
     # 1) always include ground truth
     variants["true"] = split_predict.measurements_df
     variants_with_cms["true"] = add_cms_to_measurements_df(measurements_df=split_predict.measurements_df, cm_df=split_predict.cm_df, drop_constant_cm=False)
-    # print(variants["true"])
 
     # 2) DNN (cached through run_dnn_for_split)
     if dnn_inferencer is not None:
@@ -530,11 +584,12 @@ def build_variants(split_predict: SplitData, split_correction: SplitData, cfg: E
             variants[f"analytic_k{k}"] = df_k
             variants_with_cms[f"analytic_k{k}"] = add_cms_to_measurements_df(measurements_df=variants[f"analytic_k{k}"], cm_df=split_predict.cm_df, drop_constant_cm=False)
 
-            # df_k = analytic_inferencer.predict_k_complicated(split=split, k=k)
-            # variants[f"analytic_complicated_k{k}"] = df_k
-            # variants_with_cms[f"analytic_complicated_k{k}"] = add_cms_to_measurements_df(measurements_df=variants[f"analytic_complicated_k{k}"], cm_df=split.cm_df, drop_constant_cm=False)
+    # 4) Manual
+    if manual_inferencer is not None:
+        variants[f"manual"] = manual_inferencer.predict(split_predict=split_predict, split_correction=split_correction)
+        variants_with_cms[f"manual"] = add_cms_to_measurements_df(measurements_df=variants[f"manual"], cm_df=split_predict.cm_df, drop_constant_cm=False)
 
-    # 4) final sanity: exact same index/columns as truth
+    # 5) final sanity: exact same index/columns as truth
     for key, df in variants.items():
         if not np.array_equal(df.index.values, variants["true"].index.values): 
             raise RuntimeError(f"Variant '{key}' has mismatched event index.")
@@ -592,6 +647,45 @@ def compute_cov_corr(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     corr = corr_from_cov(cov)
     return (cov, corr)
 
+def compute_distance_correlation_and_covariance(df: pd.DataFrame, cm_df: list[str]) -> pd.DataFrame:
+    """
+    Compute the pairwise distance correlation between all columns of a DataFrame.
+    Returns a symmetric DataFrame with 1.0 on the diagonal.
+    """
+
+    cols = df.columns
+    m = len(cols)
+
+    dcor_mat = np.zeros((m, m), dtype=float)
+    dcov_mat = np.zeros((m, m), dtype=float)
+
+
+    for i in range(m):
+        # cast once to float64, ensure C-contiguous
+        x = np.ascontiguousarray(df[:1000].iloc[:, i].to_numpy(dtype=np.float64))
+        for j in range(i, m):
+            y = np.ascontiguousarray(df[:1000].iloc[:, j].to_numpy(dtype=np.float64))
+            dcor_mat[i, j] = dcor_mat[j, i] = dcor.distance_correlation(x, y)
+            dcov_mat[i, j] = dcov_mat[j, i] = dcor.distance_covariance(x, y)
+    
+    return (pd.DataFrame(dcor_mat, index=cols, columns=cols), pd.DataFrame(dcov_mat, index=cols, columns=cols))
+
+
+def project_cm_to_eig(cm_df: pd.DataFrame, eigvecs) -> pd.DataFrame:
+    """
+    Returns a DataFrame with the CM values expressed in the eigenbasis.
+    Rows = events (same index as cm_df)
+    Columns = eigendirections (one per eigenvector)
+    """
+    V = eigvecs.to_numpy() if isinstance(eigvecs, pd.DataFrame) else np.asarray(eigvecs)
+    if V.shape[0] != cm_df.shape[1]:
+        raise ValueError(f"Shape mismatch: cm has {cm_df.shape[1]} columns but eigvecs has {V.shape[0]} rows.")
+    Y = cm_df.to_numpy(dtype=float) @ V   # (n_events, 12)
+
+    # Nice column names
+    cols = [f"cm_eigdir{i:02d}" for i in range(V.shape[1])]
+
+    return pd.DataFrame(Y, index=cm_df.index, columns=cols)
 
 def make_residuals(variants: Dict[str, pd.DataFrame], cm_df: pd.DataFrame) -> tuple[Dict[str, pd.DataFrame], Dict[str, pd.DataFrame]]:
     """
@@ -629,6 +723,38 @@ def plot_cov_corr(split_name: str, cfg: EvalConfig, variants: Dict[str, pd.DataF
         utils.plot_covariance(df=cov_res, nch_per_erx=cfg.nch_per_erx, title=f"Covariance (residuals: {key}, {split_name})", xtitle="channel i", ytitle="channel j", ztitle="cov(i,j)", zrange=(-4., 4.), output_filename=os.path.join(plot_dir, f"Covariance_residuals_{key}_{split_name}.pdf"))
         utils.plot_covariance(df=corr_res, nch_per_erx=cfg.nch_per_erx, title=f"Correlation (residuals: {key}, {split_name})", xtitle="channel i", ytitle="channel j", ztitle="corr(i,j)", zrange=(-1., 1.), output_filename=os.path.join(plot_dir, f"Correlation_residuals_{key}_{split_name}.pdf"))
 
+def plot_dist_corr(split_name: str, cfg: EvalConfig, variants: Dict[str, pd.DataFrame], residuals: Dict[str, pd.DataFrame], cm_df: pd.DataFrame, plot_dir: str):
+    os.makedirs(plot_dir, exist_ok=True)
+
+    for key, df in variants.items():
+        # distcorr, distcov, partdistcorr, partdistcov = compute_distance_correlation_and_covariance(df=df, cm_df=cm_df)
+        distcorr, distcov = compute_distance_correlation_and_covariance(df=df, cm_df=cm_df)
+        utils.plot_covariance(df=distcorr, nch_per_erx=cfg.nch_per_erx, title=f"Distance correlation ({key}, {split_name})", xtitle="channel i", ytitle="channel j", ztitle="dcor(i,j)", zrange=(0., 1.), output_filename=os.path.join(plot_dir, f"DistanceCorrelation_{key}_{split_name}.pdf"))
+        utils.plot_covariance(df=distcov, nch_per_erx=cfg.nch_per_erx, title=f"Distance covariance ({key}, {split_name})", xtitle="channel i", ytitle="channel j", ztitle="dcov(i,j)", zrange=(0., 4.), output_filename=os.path.join(plot_dir, f"DistanceCovariance_{key}_{split_name}.pdf"))
+
+    # --- Cov/Correlation for residuals of each predictor
+    for key, res_df in residuals.items():
+        # distcorr_res, distcov_res, partdistcorr_res, partdistcov_res = compute_distance_correlation_and_covariance(df=res_df, cm_df=cm_df)
+        distcorr_res, distcov_res = compute_distance_correlation_and_covariance(df=res_df, cm_df=cm_df)
+        utils.plot_covariance(df=distcorr_res, nch_per_erx=cfg.nch_per_erx, title=f"Distance correlation (residuals: {key}, {split_name})", xtitle="channel i", ytitle="channel j", ztitle="dcor(i,j)", zrange=(0., 1.), output_filename=os.path.join(plot_dir, f"DistanceCorrelation_residuals_{key}_{split_name}.pdf"))
+        utils.plot_covariance(df=distcov_res, nch_per_erx=cfg.nch_per_erx, title=f"Distance covariance (residuals: {key}, {split_name})", xtitle="channel i", ytitle="channel j", ztitle="dcov(i,j)", zrange=(0., 4.), output_filename=os.path.join(plot_dir, f"DistanceCovariance_residuals_{key}_{split_name}.pdf"))
+
+def plot_delta_lin_dist_corr(split_name: str, cfg: EvalConfig, variants: Dict[str, pd.DataFrame], residuals: Dict[str, pd.DataFrame], cm_df: pd.DataFrame, plot_dir: str):
+    os.makedirs(plot_dir, exist_ok=True)
+
+    for key, df in variants.items():
+        cov, corr = compute_cov_corr(df)
+        distcorr, distcov = compute_distance_correlation_and_covariance(df=df, cm_df=cm_df)
+        utils.plot_covariance(df=distcorr - corr.abs(), nch_per_erx=cfg.nch_per_erx, title=f"Distance correlation - |linear correlation| ({key}, {split_name})", xtitle="channel i", ytitle="channel j", ztitle="dcor(i,j) - |cor(i,j)|", zrange=(-0.25, 0.25), output_filename=os.path.join(plot_dir, f"Delta_DistCor_LinCor_{key}_{split_name}.pdf"))
+        utils.plot_covariance(df=distcov - cov.abs(), nch_per_erx=cfg.nch_per_erx, title=f"Distance covariance - |linear covariance| ({key}, {split_name})", xtitle="channel i", ytitle="channel j", ztitle="dcov(i,j) - |cov(i,j)|", zrange=(-0.5, 0.5), output_filename=os.path.join(plot_dir, f"Delta_DistCov_LinCov_{key}_{split_name}.pdf"))
+
+    # --- Cov/Correlation for residuals of each predictor
+    for key, res_df in residuals.items():
+        cov_res, corr_res = compute_cov_corr(res_df)
+        distcorr_res, distcov_res = compute_distance_correlation_and_covariance(df=res_df, cm_df=cm_df)
+        utils.plot_covariance(df=distcorr_res - corr_res.abs(), nch_per_erx=cfg.nch_per_erx, title=f"Distance correlation - |linear correlation| (residuals: {key}, {split_name})", xtitle="channel i", ytitle="channel j", ztitle="dcor(i,j) - |cor(i,j)|", zrange=(-0.25, 0.25), output_filename=os.path.join(plot_dir, f"Delta_DistCor_LinCor_residuals_{key}_{split_name}.pdf"))
+        utils.plot_covariance(df=distcov_res - cov_res.abs(), nch_per_erx=cfg.nch_per_erx, title=f"Distance covariance - |linear covariance| (residuals: {key}, {split_name})", xtitle="channel i", ytitle="channel j", ztitle="dcov(i,j) - |cov(i,j)|", zrange=(-0.5, 0.5), output_filename=os.path.join(plot_dir, f"Delta_DistCov_LinCov_residuals_{key}_{split_name}.pdf"))
+
 def compute_per_channel_stats(true_df: pd.DataFrame, pred_df: pd.DataFrame, res_df: pd.DataFrame) -> Dict[str, np.ndarray]:
     """Return per-channel RMS/STD for true and corrected (pred)."""
     if not true_df.index.equals(pred_df.index) or not true_df.columns.equals(pred_df.columns):
@@ -647,12 +773,35 @@ def compute_per_channel_stats(true_df: pd.DataFrame, pred_df: pd.DataFrame, res_
 
     return {"rms_true": rms_true, "rms_corr": rms_corr, "rms_frac_improvement": rms_frac_improvement, "std_true": std_true, "std_corr": std_corr, "std_frac_improvement": std_frac_improvement}
 
+def plot_per_channel_1dhistograms(channels: List[int], split_name: str, variants: Dict[str, pd.DataFrame], residuals: Dict[str, pd.DataFrame], plot_dir: str) -> None:
+    """Per-channel 1d histograms, like ADC distributions for true and predictors and residuals."""
+
+    os.makedirs(plot_dir, exist_ok=True)
+    method_color = {"true": "gray", "dnn": "tomato", "analytic_k0": "seagreen", "analytic_k1": "orange", "analytic_k3": "pink", "analytic_k5": "violet", "manual": "magenta"}
+
+    for ch in channels:
+        plot_dir_thischannel = os.path.join(plot_dir, f"channel_{ch:03}")
+        os.makedirs(plot_dir_thischannel, exist_ok=True)
+
+        utils.plot_hist_single(x=variants["true"][f"ch_{ch:03}"].to_numpy(), bins=30, color=method_color["true"], xlabel="Measured (ADC)", title="", outpath=os.path.join(plot_dir_thischannel, f"true_ch{ch:03}_{split_name}.pdf"), show_mean_line=True)
+
+        for key, pred in variants.items():
+            if key == "true":
+                continue
+            utils.plot_hist_overlay_pair(a=variants["true"][f"ch_{ch:03}"].to_numpy(), b=pred[f"ch_{ch:03}"].to_numpy(), bins=30, label_a="True", label_b=f"Prediction ({key})", color_a=method_color["true"], color_b=method_color[key], xlabel=f"channel {ch:03} (ADC)", title=f"Measured values and prediction ({key})", outpath=os.path.join(plot_dir_thischannel, f"prediction_{key}_ch{ch:03}_{split_name}.pdf"))
+            utils.plot_hist_overlay_pair(a=variants["true"][f"ch_{ch:03}"].to_numpy(), b=residuals[key][f"ch_{ch:03}"].to_numpy(), bins=30, label_a="True", label_b=f"Residuals ({key})", color_a=method_color["true"], color_b=method_color[key], xlabel=f"channel {ch:03} (ADC)", title=f"Measured values and residuals ({key})", outpath=os.path.join(plot_dir_thischannel, f"residuals_{key}_ch{ch:03}_{split_name}.pdf"))
+            
+
+            stats = compute_per_channel_stats(true_df=variants["true"], pred_df=pred, res_df=residuals[key])
+            utils.plot_hist_overlay_pair(a=[stats["rms_true"][ch]], b=[stats["rms_corr"][ch]], bins=30, label_a=f"True (mean: {stats['rms_true'].mean():.3})", label_b=f"{key} corrected (mean: {stats['rms_corr'].mean():.3})", color_a="gray", color_b=method_color[key], xlabel="RMS (ADC units)", title=f"Per-channel RMS — {key} ({split_name})", outpath=os.path.join(plot_dir_thischannel, f"rms_comparison_ch{ch:03}_{key}_{split_name}.pdf"))
+            utils.plot_hist_overlay_pair(a=[stats["std_true"][ch]], b=[stats["std_corr"][ch]], bins=30, label_a=f"Uncorrected (mean: {stats['std_true'].mean():.3})", label_b=f"{key} corrected (mean: {stats['std_corr'].mean():.3})", color_a="gray", color_b=method_color[key], xlabel="Standard Deviation (ADC units)", title=f"Per-channel STD — {key} ({split_name})", outpath=os.path.join(plot_dir_thischannel, f"std_comparison_ch{ch:03}_{key}_{split_name}.pdf"))
+
 def plot_per_channel_diagnostics(split_name: str, variants: Dict[str, pd.DataFrame], residuals: Dict[str, pd.DataFrame], plot_dir: str) -> None:
     """Per-channel RMS/STD histograms + fractional improvement for each predictor."""
     os.makedirs(plot_dir, exist_ok=True)
 
-    # color palette consistent with your previous script
-    method_color = {"dnn": "tomato", "analytic_k0": "seagreen", "analytic_k1": "orange", "analytic_k3": "pink"}
+    # color palette
+    method_color = {"dnn": "tomato", "analytic_k0": "seagreen", "analytic_k1": "orange", "analytic_k3": "pink", "analytic_k5": "violet", "manual": "magenta"}
 
     for key, pred in variants.items():
         if key == "true":
@@ -675,17 +824,26 @@ def plot_per_channel_diagnostics(split_name: str, variants: Dict[str, pd.DataFra
         utils.plot_hist_single(x=stats["rms_frac_improvement"], bins=80, color=col, xlabel=r"Fractional improvement  $1-\mathrm{RMS}_{\rm corr}/\mathrm{RMS}_{\rm uncorr}$", title=f"Per-channel fractional RMS improvement — {key} ({split_name})", outpath=os.path.join(plot_dir, f"rms_frac_improvement_per_channel_{key}.pdf"), show_mean_line=True)
         utils.plot_hist_single(x=stats["std_frac_improvement"], bins=80, color=col, xlabel=r"Fractional improvement  $1-\mathrm{STD}_{\rm corr}/\mathrm{STD}_{\rm uncorr}$", title=f"Per-channel fractional RMS improvement — {key} ({split_name})", outpath=os.path.join(plot_dir, f"std_frac_improvement_per_channel_{key}.pdf"), show_mean_line=True)
 
-def plot_vs_each_cm(split_name: str, cm_df: pd.DataFrame, variants: Dict[str, pd.DataFrame], residuals: Dict[str, pd.DataFrame], plot_dir: str) -> None:
+def plot_vs_each_cm(split_name: str, cm_df: pd.DataFrame, variants: Dict[str, pd.DataFrame], residuals: Dict[str, pd.DataFrame], channel_number: int | str, plot_dir: str) -> None:
     os.makedirs(plot_dir, exist_ok=True)
 
     # sanity
     if not cm_df.index.equals(variants["true"].index):
         raise RuntimeError("CM df and measurements index mismatch.")
 
-    n_channels = variants["true"].shape[1]
+    if channel_number == "all":
+        n_channels = variants["true"].shape[1]
+    elif isinstance(channel_number, int):
+        n_channels = 1
+    else: 
+        raise ValueError(f"channel_number is not 'all' nor an integer index. Instead, it is: {channel_number}. This is not supported.")
 
     # measurements, flattened event-major
-    y_true_flat = variants["true"].to_numpy().ravel()
+    if channel_number == "all":
+        y_true_flat = variants["true"].to_numpy().ravel()
+    else:
+        y_true_flat = variants["true"][[f"ch_{channel_number:03}"]].to_numpy().ravel()
+    
 
     for cm_name in cm_df.columns:
         subdir = os.path.join(plot_dir, cm_name)
@@ -695,26 +853,35 @@ def plot_vs_each_cm(split_name: str, cm_df: pd.DataFrame, variants: Dict[str, pd
         x_flat = np.repeat(cm_df[cm_name].to_numpy(), n_channels)
 
         # measurements vs CM
-        utils.plot_y_vs_x_with_marginals(vals_x=x_flat, vals_y=y_true_flat, label_x=f"{cm_name} (ADC)", label_y="Uncorrected (ADC)", label_profile="profile", output_filename=os.path.join(subdir, f"uncorr_vs_{cm_name}_{split_name}.pdf"), nbins_x=80, nbins_y=80)
+        utils.plot_y_vs_x_with_marginals(vals_x=x_flat, vals_y=y_true_flat, label_x=f"{cm_name} (ADC)", label_y="Uncorrected (ADC)", label_profile="profile", output_filename=os.path.join(subdir, f"true_vs_{cm_name}_{split_name}.pdf"), nbins_x=80, nbins_y=80, yrange=[-0.3, 0.3])
 
         # predictions and residuals vs CM
-
         for method, df_pred in variants.items():
             if method == "true": 
                 continue
-            y_pred_flat = df_pred.to_numpy().ravel()
-            y_res_flat  = residuals[method].to_numpy().ravel()
+            if channel_number == "all":
+                y_pred_flat = df_pred.to_numpy().ravel()
+                y_res_flat  = residuals[method].to_numpy().ravel()
+            else:
+                y_pred_flat = df_pred[[f"ch_{channel_number:03}"]].to_numpy().ravel()
+                y_res_flat  = residuals[method][[f"ch_{channel_number:03}"]].to_numpy().ravel()
 
-            utils.plot_y_vs_x_with_marginals(vals_x=x_flat, vals_y=y_pred_flat, label_x=f"{cm_name} (ADC)", label_y=f"{method} corrected (ADC)", label_profile="profile", output_filename=os.path.join(subdir, f"{method}_corr_vs_{cm_name}_{split_name}.pdf"), nbins_x=80, nbins_y=80)
+            utils.plot_y_vs_x_with_marginals(vals_x=x_flat, vals_y=y_pred_flat, label_x=f"{cm_name} (ADC)", label_y=f"{method} prediction (ADC)", label_profile="profile", output_filename=os.path.join(subdir, f"{method}_pred_vs_{cm_name}_{split_name}.pdf"), nbins_x=80, nbins_y=80, yrange=[-0.3, 0.3])
 
-            utils.plot_y_vs_x_with_marginals(vals_x=x_flat, vals_y=y_res_flat,  label_x=f"{cm_name} (ADC)", label_y=f"{method} residual (ADC)",  label_profile="profile",  output_filename=os.path.join(subdir, f"{method}_residual_vs_{cm_name}_{split_name}.pdf"), nbins_x=80, nbins_y=80)
+            utils.plot_y_vs_x_with_marginals(vals_x=x_flat, vals_y=y_res_flat,  label_x=f"{cm_name} (ADC)", label_y=f"{method} residual (ADC)",  label_profile="profile",  output_filename=os.path.join(subdir, f"{method}_residual_vs_{cm_name}_{split_name}.pdf"), nbins_x=80, nbins_y=80, yrange=[-0.3, 0.3])
 
         
         # methods_to_overlay = ["true", "dnn", "analytic_k0", "analytic_k1", "analytic_k3", "analytic_k5", "analytic_k10"]
         methods_to_overlay = ["true", "dnn", "analytic_k0", "analytic_k1", "analytic_k3", "analytic_k5"]
+        if channel_number == "all":
+            variants_to_overlay = [variants[m].to_numpy().ravel() for m in methods_to_overlay]
+            residuals_to_overlay = [residuals[m].to_numpy().ravel() for m in methods_to_overlay if m != "true"]
+        else:
+            variants_to_overlay = [variants[m][[f"ch_{channel_number:03}"]].to_numpy().ravel() for m in methods_to_overlay]
+            residuals_to_overlay = [residuals[m][[f"ch_{channel_number:03}"]].to_numpy().ravel() for m in methods_to_overlay if m != "true"]
         utils.overlay_profiles(
             vals_x=x_flat, 
-            list_of_vals_y=[variants[m].to_numpy().ravel() for m in methods_to_overlay], 
+            list_of_vals_y=variants_to_overlay, 
             label_x=cm_name, 
             label_y="ADC", 
             labels_profiles=methods_to_overlay, 
@@ -724,7 +891,7 @@ def plot_vs_each_cm(split_name: str, cm_df: pd.DataFrame, variants: Dict[str, pd
         )
         utils.overlay_profiles(
             vals_x=x_flat, 
-            list_of_vals_y=[residuals[m].to_numpy().ravel() for m in methods_to_overlay if m != "true"], 
+            list_of_vals_y=residuals_to_overlay, 
             label_x=cm_name, 
             label_y="ADC", 
             labels_profiles=[m for m in methods_to_overlay if m != "true"], 
@@ -867,7 +1034,7 @@ def plot_coherent_noise_from_result(split_name: str, result: CoherentNoiseResult
         ax.grid(ls="--", alpha=0.3)
 
     ax1.set_ylabel("Noise (ADC)", fontsize=16, loc="top", labelpad=12)
-    ax1.set_ylim(0., max(ax1.get_ylim()[1], 3.))
+    ax1.set_ylim(0., max(ax1.get_ylim()[1], 0.05))
     ax1.legend(loc="upper right", fontsize=12)
 
     axr.plot(result.erx_idx, result.inc_ratio, "o--", color="tab:blue")
@@ -950,10 +1117,7 @@ def compute_eigendecomp_for_method(method: str, df: pd.DataFrame) -> EigDecompRe
     # channel covariance across events (N x N); reuse our NaN-safe compute_cov
     cov = compute_cov(df_i=df, df_j=df)
     # symmetric -> eigh; sort descending
-    vals, vecs = np.linalg.eigh(cov.to_numpy())
-    order = np.argsort(vals)[::-1]
-    vals = vals[order]
-    vecs = vecs[:, order]
+    vals, vecs = compute_eig_from_cov(C=cov)
     return EigDecompResult(method=method, eigenvalues=vals, eigenvectors=vecs, channel_order=np.arange(cov.shape[0]))
 
 def plot_eigen_spectrum(split_name: str, eig: EigDecompResult, output_filename: str) -> None:
@@ -1066,11 +1230,12 @@ def compute_projections_onto_topk(df: pd.DataFrame, eig: EigDecompResult, k: int
     P = R @ V
     return [P[:, i] for i in range(k)]
 
-def plot_projection_hists(df: pd.DataFrame, eig: EigDecompResult, k: int, output_filename: str) -> None:
+def plot_projection_hists_1d(df: pd.DataFrame, eig: EigDecompResult, k: int, output_filename: str) -> None:
     k = int(min(k, eig.eigenvectors.shape[1]))
     projections = compute_projections_onto_topk(df=df, eig=eig, k=k)
 
     bins = np.histogram_bin_edges(np.concatenate(projections), bins=25)
+    bins = np.histogram_bin_edges([-50, 50], bins=80)
     fig, ax = plt.subplots()
     colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
     for i, p in enumerate(projections):
@@ -1088,16 +1253,46 @@ def plot_projection_hists(df: pd.DataFrame, eig: EigDecompResult, k: int, output
     ax.legend(ncol=1)
     fig.tight_layout()
     fig.savefig(output_filename)
-    plt.close(fig)
 
-def plot_all_projection_hists(split_name: str, variants: Dict[str, pd.DataFrame], residuals: Dict[str, pd.DataFrame], k: int, plot_dir: str):
-    os.makedirs(plot_dir, exist_ok=True)
+def plot_projection_hists_2d(split_name:str, method: str, df: pd.DataFrame, cm_df: pd.DataFrame, eig: EigDecompResult, k: int, plot_dir: str, plot_tag: str) -> None:
+    k = int(min(k, eig.eigenvectors.shape[1]))
+    projections = compute_projections_onto_topk(df=df, eig=eig, k=k)
+
+    for idx, p in enumerate(projections):
+        for cmidx in range(len(list(cm_df.columns))):
+            cm_name = cm_df.columns[cmidx]
+            xi = cm_df.iloc[:, cmidx]
+            subdir = os.path.join(plot_dir, cm_df.columns[cmidx], method)
+            os.makedirs(subdir, exist_ok=True)
+            utils.plot_y_vs_x_with_marginals(vals_x=xi, vals_y=p, label_x=f"{cm_name} (ADC)", label_y=f"{method} projection (ADC)", label_profile="profile", output_filename=os.path.join(subdir, f"eigenprojection_mode_{idx}_{method}_{plot_tag}_vs_{cm_name}_{split_name}.pdf"), nbins_x=80, nbins_y=80, yrange=[-50, 50])
+
+def plot_all_projection_hists(split_name: str, variants: Dict[str, pd.DataFrame], residuals: Dict[str, pd.DataFrame], cm_df: pd.DataFrame, k: int, plot_dir: str):
+    plot_dir_1d = os.path.join(plot_dir, "dim1")
+    plot_dir_2d = os.path.join(plot_dir, "dim2_vs_cm")
+    plot_dir_2d_projOnTrue = os.path.join(plot_dir, "dim2_vs_cm_projOnTrue")
+    plot_dir_2d_channel000_projOnTrue = os.path.join(plot_dir, "channel000", "dim2_vs_cm_projOnTrue")
+    os.makedirs(plot_dir_1d, exist_ok=True)
+    os.makedirs(plot_dir_2d, exist_ok=True)
+    os.makedirs(plot_dir_2d_projOnTrue, exist_ok=True)
+    os.makedirs(plot_dir_2d_channel000_projOnTrue, exist_ok=True)
+
+    eig_true = compute_eigendecomp_for_method(method="true", df=variants["true"])
+    eig_true_ch000 = compute_eigendecomp_for_method(method="true", df=variants["true"])
+    eig_true_ch000.eigenvectors = eig_true_ch000.eigenvectors[0:1, :]
+    
+
     for method, variant in variants.items():
         eig = compute_eigendecomp_for_method(method=method, df=variant)
-        plot_projection_hists(df=variant, eig=eig, k=k, output_filename=os.path.join(plot_dir, f"eigenprojections_{eig.method}_{split_name}.pdf"))
+        plot_projection_hists_1d(df=variant, eig=eig, k=k, output_filename=os.path.join(plot_dir_1d, f"eigenprojections_{eig.method}_{split_name}.pdf"))
+        plot_projection_hists_2d(split_name=split_name, method=method, df=variant, cm_df=cm_df, eig=eig, k=k, plot_dir=plot_dir_2d, plot_tag="pred")
+        plot_projection_hists_2d(split_name=split_name, method=method, df=variant, cm_df=cm_df, eig=eig_true, k=k, plot_dir=plot_dir_2d_projOnTrue, plot_tag="pred_projOnTrueMode")
+        plot_projection_hists_2d(split_name=split_name, method=method, df=variant.iloc[:, 0:1], cm_df=cm_df, eig=eig_true_ch000, k=k, plot_dir=plot_dir_2d_channel000_projOnTrue, plot_tag="pred_projOnTrueMode")
     for method, variant in residuals.items():
         eig = compute_eigendecomp_for_method(method=method, df=variant)
-        plot_projection_hists(df=variant, eig=eig, k=k, output_filename=os.path.join(plot_dir, f"eigenprojections_residuals_{eig.method}_{split_name}.pdf"))
+        plot_projection_hists_1d(df=variant, eig=eig, k=k, output_filename=os.path.join(plot_dir_1d, f"eigenprojections_residuals_{eig.method}_{split_name}.pdf"))
+        plot_projection_hists_2d(split_name=split_name, method=method, df=variant, cm_df=cm_df, eig=eig, k=k, plot_dir=plot_dir_2d, plot_tag="residuals")
+        plot_projection_hists_2d(split_name=split_name, method=method, df=variant, cm_df=cm_df, eig=eig_true, k=k, plot_dir=plot_dir_2d_projOnTrue, plot_tag="residuals_projOnTrueMode")
+        plot_projection_hists_2d(split_name=split_name, method=method, df=variant.iloc[:, 0:1], cm_df=cm_df, eig=eig_true_ch000, k=k, plot_dir=plot_dir_2d_channel000_projOnTrue, plot_tag="residuals_projOnTrueMode")
 
 
 
